@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Upload, CheckCircle, RefreshCw, TrendingUp, BarChart2, Clock, Copy, Filter, Save, AlertTriangle, Clipboard, X, Trash2, ArrowRightCircle, UserPlus, FileText } from 'lucide-react';
+import { Upload, CheckCircle, RefreshCw, TrendingUp, BarChart2, Clock, Copy, Filter, Save, AlertTriangle, Clipboard, X, Trash2, ArrowRightCircle, UserPlus, FileText, Maximize2 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { readData, processWeeklyAnalysis, processMonthlyAnalysis, processPerformanceReport, processRevenueSummary, AD_CYCLES } from './utils/dataProcessor';
 
@@ -7,7 +7,8 @@ const ISSUE_LABELS = { 'A': 'A 접속시간', 'B': 'B 정산금액', 'C': 'C 부
 
 function App() {
   const [persistedData, setPersistedData] = useState(() => JSON.parse(localStorage.getItem('dashboardData')) || { weekly: null, monthly: null, report: null, revSummary: null });
-  const [tempFiles, setTempFiles] = useState({ lastWeek: null, thisWeek: null, lastMonth: null, thisMonth: null });
+  const [tempFiles, setTempFiles] = useState(() => JSON.parse(localStorage.getItem('rawDataStorage')) || { lastWeek: null, thisWeek: null, lastMonth: null, thisMonth: null });
+  
   const [activeTab, setActiveTab] = useState('weekly');
   const [memo, setMemo] = useState(() => JSON.parse(localStorage.getItem('dashboardMemo')) || {});
   const [adHistory, setAdHistory] = useState(() => JSON.parse(localStorage.getItem('adHistory')) || {});
@@ -16,6 +17,7 @@ function App() {
   useEffect(() => localStorage.setItem('dashboardData', JSON.stringify(persistedData)), [persistedData]);
   useEffect(() => localStorage.setItem('dashboardMemo', JSON.stringify(memo)), [memo]);
   useEffect(() => localStorage.setItem('adHistory', JSON.stringify(adHistory)), [adHistory]);
+  useEffect(() => localStorage.setItem('rawDataStorage', JSON.stringify(tempFiles)), [tempFiles]);
 
   const handleUpload = async (e, key) => {
     const file = e.target.files[0];
@@ -57,26 +59,17 @@ function App() {
 
   const runAnalysis = () => {
     const newData = { ...persistedData };
-
     if (tempFiles.thisWeek) {
         newData.weekly = processWeeklyAnalysis(tempFiles.thisWeek.data, tempFiles.lastWeek?.data || []);
     }
-
     if (tempFiles.thisMonth) {
         const last = tempFiles.lastMonth?.data || [];
         const summary = processRevenueSummary(tempFiles.thisMonth.data, last);
         newData.revSummary = summary;
         newData.monthly = summary.analyzedCurrent;
-        
-        if(tempFiles.lastMonth) {
-            newData.report = processPerformanceReport(tempFiles.thisMonth.data, last);
-        }
+        if(tempFiles.lastMonth) newData.report = processPerformanceReport(tempFiles.thisMonth.data, last);
     }
-
-    if (!tempFiles.thisWeek && !tempFiles.thisMonth) {
-        return alert("분석할 데이터를 업로드해주세요.");
-    }
-
+    if (!tempFiles.thisWeek && !tempFiles.thisMonth) return alert("분석할 데이터를 업로드해주세요.");
     setPersistedData(newData);
     alert("분석 완료!");
   };
@@ -104,7 +97,7 @@ function App() {
       <div className="bg-white shadow-sm border-b p-6 sticky top-0 z-20">
         <div className="max-w-7xl mx-auto">
           <div className="flex justify-between items-center mb-6">
-            <h1 className="text-2xl font-bold text-indigo-600 flex items-center gap-2"><TrendingUp /> 상담사 통합 관리 V31</h1>
+            <h1 className="text-2xl font-bold text-indigo-600 flex items-center gap-2"><TrendingUp /> 상담사 통합 관리 V32</h1>
             <div className="flex items-center gap-4">
                 <button onClick={resetAll} className="bg-red-50 text-red-600 px-3 py-2 rounded font-bold text-xs flex items-center gap-1 hover:bg-red-100 transition"><Trash2 size={14}/> 데이터 초기화</button>
                 <div className="flex bg-gray-100 p-1 rounded-lg">
@@ -112,7 +105,6 @@ function App() {
                 </div>
             </div>
           </div>
-
           {activeTab !== 'ad' && (
               <div className="flex gap-4 items-stretch">
                 {activeTab === 'weekly' ? (
@@ -148,160 +140,163 @@ function App() {
   );
 }
 
-// [수정] UploadBox 시각적 효과 개선
 const UploadBox = ({ label, fileData, onUpload, onPaste, color='green' }) => {
-    const inputRef = useRef(null); // input 태그를 제어하기 위한 Ref
+    const inputRef = useRef(null);
     const isLoaded = !!fileData;
-    
-    const theme = isLoaded ? 
-        (color === 'blue' ? 'border-blue-500 bg-blue-50 text-blue-700 ring-2 ring-blue-100' : color === 'purple' ? 'border-purple-500 bg-purple-50 text-purple-700 ring-2 ring-purple-100' : 'border-green-500 bg-green-50 text-green-700 ring-2 ring-green-100') 
-        : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50';
-
-    // 박스 클릭 시 파일 선택창 강제 실행
-    const handleBoxClick = () => {
-        if (inputRef.current) {
-            inputRef.current.click();
-        }
-    };
+    const theme = isLoaded ? (color === 'blue' ? 'border-blue-500 bg-blue-50 text-blue-700 ring-2 ring-blue-100' : color === 'purple' ? 'border-purple-500 bg-purple-50 text-purple-700 ring-2 ring-purple-100' : 'border-green-500 bg-green-50 text-green-700 ring-2 ring-green-100') : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50';
+    const handleBoxClick = () => { if (inputRef.current) inputRef.current.click(); };
 
     return (
-        <div 
-            onClick={handleBoxClick} 
-            className={`flex-1 border-2 border-dashed rounded-lg h-28 relative transition-all duration-200 cursor-pointer ${theme}`}
-        >
+        <div onClick={handleBoxClick} className={`flex-1 border-2 border-dashed rounded-lg flex flex-col items-center justify-center h-28 relative transition-all duration-200 cursor-pointer ${theme}`}>
             <div className="flex flex-col items-center justify-center h-full w-full pointer-events-none">
                 {isLoaded ? <FileText className="mb-1" size={28}/> : <Upload className="text-gray-400 mb-1" size={24} />}
                 <span className="font-bold text-sm mb-1">{label}</span>
-                
-                {isLoaded ? (
-                    <div className="flex flex-col items-center">
-                        <span className="text-xs font-medium px-2 py-1 bg-white bg-opacity-60 rounded shadow-sm truncate max-w-[150px]">{fileData.name}</span>
-                        {/* <span className="text-[10px] mt-1 text-gray-500 underline">클릭하여 파일 변경</span> */}
-                    </div>
-                ) : (
-                    <span className="text-xs text-gray-500">클릭하여 파일 업로드</span>
-                )}
+                {isLoaded ? <div className="flex flex-col items-center"><span className="text-xs font-medium px-2 py-1 bg-white bg-opacity-60 rounded shadow-sm truncate max-w-[150px]">{fileData.name}</span><span className="text-[10px] mt-1 text-gray-500 underline">클릭하여 파일 변경</span></div> : <span className="text-xs text-gray-500">클릭하여 파일 업로드</span>}
             </div>
-
-            {/* 숨겨진 input: 클릭 시 value를 초기화하여 같은 파일 재업로드 허용 */}
-            <input 
-                ref={inputRef}
-                type="file" 
-                className="hidden" 
-                onChange={onUpload} 
-                onClick={(e) => { e.target.value = null; }} 
-                accept=".xlsx, .xls" 
-            />
-
-            {/* 구글 시트 버튼: 상위 div의 클릭 이벤트가 발생하지 않도록 stopPropagation 사용 */}
-            {!isLoaded && (
-                <button 
-                    onClick={(e) => { 
-                        e.stopPropagation(); 
-                        onPaste(); 
-                    }} 
-                    className="absolute bottom-2 right-2 bg-white border border-gray-300 px-2 py-1 rounded text-xs hover:bg-gray-100 shadow-sm text-gray-600 font-medium transition z-10 pointer-events-auto"
-                >
-                    구글시트
-                </button>
-            )}
+            <input ref={inputRef} type="file" className="hidden" onChange={onUpload} onClick={(e) => { e.target.value = null; }} accept=".xlsx, .xls" />
+            {!isLoaded && <button onClick={(e) => { e.stopPropagation(); onPaste(); }} className="absolute bottom-2 right-2 bg-white border border-gray-300 px-2 py-1 rounded text-xs hover:bg-gray-100 shadow-sm text-gray-600 font-medium transition z-10 pointer-events-auto">구글시트</button>}
         </div>
     );
 };
 
+// [수정] DashboardView - 그래프 탭 및 전체보기 모달 구현
 const DashboardView = ({ data, memo, setMemo, isMonthly }) => {
-  // 1. [수정] 시간/금액 포맷터 (부호 및 단위 추가)
-  const fmt = (n) => (n || 0).toLocaleString() + '원';
-  
-  const fmtTime = (m) => {
-    if (!m && m !== 0) return '0시간 0분';
-    const h = Math.floor(Math.abs(m) / 60);
-    const min = Math.abs(m) % 60;
-    // 음수 처리는 별도 로직에서 하므로 여기선 절대값 기준 시간만 반환
-    return `${h}시간 ${min}분`;
-  };
+  const [chartType, setChartType] = useState('revenue'); // 'revenue' | 'time'
+  const [showModal, setShowModal] = useState(false);
 
+  const fmt = (n) => (n || 0).toLocaleString();
+  const fmtTime = (m) => `${Math.floor(m/60)}h ${m%60}m`;
   const fmtRate = (n) => (n || 0).toFixed(1) + '%';
 
-  // 3. [추가] 증감액 표시 헬퍼 (HTML 렌더링)
   const renderDelta = (val, type) => {
     if (!val || val === 0) return null;
     const isPos = val > 0;
     const color = isPos ? 'text-blue-600' : 'text-red-600';
-    const sign = isPos ? '+' : '-';
-    
-    let text = '';
-    if (type === 'time') text = `${sign}${fmtTime(val)}`;
-    else text = `${sign}${Math.abs(val).toLocaleString()}원`;
-
+    const sign = isPos ? '+' : '';
+    let text = type === 'time' ? `${sign}${fmtTime(val)}` : `${sign}${Math.abs(val).toLocaleString()}원`;
     return <div className={`text-[10px] ${color}`}>{text}</div>;
   };
 
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-xs text-center whitespace-nowrap border-collapse table-fixed">
-        <thead className="bg-gray-100 text-gray-700 font-bold uppercase sticky top-0 z-10 shadow-sm">
-          <tr>
-            <th className="p-3 w-24 sticky left-0 bg-gray-100 border-r z-20">닉네임</th>
-            <th className="p-3 w-20">카테고리</th>
-            <th className="p-3 w-24">단계</th>
-            <th className="p-3 w-16">레벨</th>
-            {/* 2. [수정] 월간 탭에서도 '승급심사' 헤더 제거 */}
-            <th className="p-3 bg-blue-50 w-32">접속시간</th>
-            <th className="p-3 bg-blue-50 w-20">접속증감률</th>
-            <th className="p-3 bg-blue-50 w-32">정산금액</th>
-            <th className="p-3 bg-blue-50 w-20">상담료증감률</th>
-            <th className="p-3 w-20">미작성후기</th>
-            <th className="p-3 w-16">부재중</th>
-            <th className="p-3 text-left w-72">이슈/비고</th>
-            <th className="p-3 min-w-[350px]">메모</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-200">
-          {data.map((row, idx) => {
-            const timeColor = row.timeRate < 0 ? 'text-red-600' : 'text-blue-600';
-            const revColor = row.revRate < 0 ? 'text-red-600' : 'text-blue-600';
-            let rowClass = 'hover:bg-gray-50';
-            let stickyClass = 'bg-white';
-            if (row.status === 'blind') { rowClass = 'bg-red-50 hover:bg-red-100'; stickyClass = 'bg-red-50'; } 
-            else if (row.status === 'new') { rowClass = 'bg-yellow-50 hover:bg-yellow-100'; stickyClass = 'bg-yellow-50'; }
+  // 차트용 데이터 가공
+  const sortedData = [...data].sort((a, b) => {
+      const valA = chartType === 'revenue' ? a.curRev : a.curTime;
+      const valB = chartType === 'revenue' ? b.curRev : b.curTime;
+      return valB - valA;
+  });
+  const top10Data = sortedData.slice(0, 10);
 
-            return (
-              <tr key={idx} className={rowClass}>
-                <td className={`p-3 font-bold sticky left-0 border-r z-10 text-gray-800 ${stickyClass}`}>{row.nick}</td>
-                <td className="p-3">{row.category}</td>
-                <td className="p-3">{row.levelCat}</td>
-                <td className="p-3">{row.level}</td>
-                {/* 2. [수정] 승급심사 데이터 셀 제거 */}
-                
-                {/* 3. [수정] 접속시간 및 증감 시간 표기 */}
-                <td className="p-3">
-                    <div className="font-medium">{fmtTime(row.curTime)}</div>
-                    {renderDelta(row.timeDelta, 'time')}
-                </td>
-                <td className={`p-3 ${timeColor}`}>{fmtRate(row.timeRate * 100)}</td>
-                
-                {/* 3. [수정] 정산금액 및 증감 금액 표기 */}
-                <td className="p-3">
-                    <div className="font-medium">{fmt(row.curRev)}</div>
-                    {renderDelta(row.revDelta, 'money')}
-                </td>
-                <td className={`p-3 ${revColor}`}>{fmtRate(row.revRate * 100)}</td>
-                
-                <td className={`p-3 font-bold ${row.unanswered > 0 ? 'text-red-600' : 'text-gray-400'}`}>{row.unanswered}</td>
-                <td className="p-3">{row.curMissed}</td>
-                <td className="p-3 text-left">
-                  <div className="flex flex-col gap-1 items-start">
-                    {row.remarks!=='-' && <span className="text-gray-600 bg-white border px-1 rounded text-[11px] font-medium">{row.remarks}</span>}
-                    {row.issues.map(i => <span key={i} className="px-2 py-0.5 rounded text-[10px] font-bold border flex items-center gap-1 bg-yellow-50 text-yellow-700 border-yellow-200">{i}</span>)}
+  // 차트 컴포넌트 (재사용)
+  const ChartComponent = ({ dataset, height=300 }) => (
+      <ResponsiveContainer width="100%" height={height}>
+        <BarChart data={dataset} margin={{top:20, right:30, left:20, bottom:5}}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} />
+            <XAxis dataKey="nick" tick={{fontSize:12}} interval={0} />
+            <YAxis tickFormatter={(val) => chartType==='revenue' ? `${val/10000}만` : `${Math.floor(val/60)}h`} />
+            <Tooltip 
+                formatter={(val, name) => [
+                    chartType==='revenue' ? fmt(val)+'원' : fmtTime(val),
+                    name
+                ]}
+                labelStyle={{color:'black'}}
+            />
+            <Legend />
+            <Bar dataKey={chartType==='revenue'?'prevRev':'prevTime'} fill="#e5e7eb" name={isMonthly ? "지난달" : "지난주"} radius={[4,4,0,0]} />
+            <Bar dataKey={chartType==='revenue'?'curRev':'curTime'} fill={chartType==='revenue'?"#4f46e5":"#10b981"} name={isMonthly ? "이번달" : "이번주"} radius={[4,4,0,0]} />
+        </BarChart>
+      </ResponsiveContainer>
+  );
+
+  return (
+    <div>
+      {/* 상단 그래프 섹션 */}
+      <div className="mb-8 p-4 border rounded-xl bg-white shadow-sm">
+        <div className="flex justify-between items-center mb-4">
+            <div className="flex gap-2 bg-gray-100 p-1 rounded-lg">
+                <button onClick={()=>setChartType('revenue')} className={`px-3 py-1 text-xs font-bold rounded-md transition ${chartType==='revenue'?'bg-white shadow text-indigo-600':'text-gray-500'}`}>💰 정산금액</button>
+                <button onClick={()=>setChartType('time')} className={`px-3 py-1 text-xs font-bold rounded-md transition ${chartType==='time'?'bg-white shadow text-green-600':'text-gray-500'}`}>⏰ 접속시간</button>
+            </div>
+            <button onClick={()=>setShowModal(true)} className="text-xs text-gray-500 hover:text-indigo-600 flex items-center gap-1 font-bold border px-2 py-1 rounded hover:bg-gray-50 transition"><Maximize2 size={14}/> 전체보기</button>
+        </div>
+        
+        <div className="h-64 w-full">
+            <ChartComponent dataset={top10Data} />
+        </div>
+      </div>
+
+      {/* 전체보기 모달 */}
+      {showModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-10">
+              <div className="bg-white rounded-xl w-full h-full max-w-7xl p-6 flex flex-col shadow-2xl">
+                  <div className="flex justify-between items-center mb-4 border-b pb-2">
+                      <h3 className="font-bold text-lg flex items-center gap-2">
+                          {chartType==='revenue' ? <span className="text-indigo-600">💰 정산금액</span> : <span className="text-green-600">⏰ 접속시간</span>} 
+                          전체 상담사 비교
+                      </h3>
+                      <button onClick={()=>setShowModal(false)} className="p-2 hover:bg-gray-100 rounded-full transition"><X size={24}/></button>
                   </div>
-                </td>
-                <td className="p-3"><input className="border rounded px-2 py-1 w-full bg-white" value={memo[row.nick]||''} onChange={e=>setMemo({...memo,[row.nick]:e.target.value})} /></td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+                  <div className="flex-1 overflow-x-auto overflow-y-hidden pb-4">
+                      <div style={{ width: `${Math.max(100, sortedData.length * 50)}px`, height: '100%' }}>
+                          <ChartComponent dataset={sortedData} height="100%" />
+                      </div>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs text-center whitespace-nowrap border-collapse table-fixed">
+          <thead className="bg-gray-100 text-gray-700 font-bold uppercase sticky top-0 z-10 shadow-sm">
+            <tr>
+              <th className="p-3 w-24 sticky left-0 bg-gray-100 border-r z-20">닉네임</th>
+              <th className="p-3 w-20">카테고리</th>
+              <th className="p-3 w-24">단계</th>
+              <th className="p-3 w-16">레벨</th>
+              {isMonthly && <th className="p-3 bg-indigo-100 text-indigo-800 w-32">승급심사</th>}
+              <th className="p-3 bg-blue-50 w-28">접속시간</th>
+              <th className="p-3 bg-blue-50 w-20">접속증감률</th>
+              <th className="p-3 bg-blue-50 w-28">정산금액</th>
+              <th className="p-3 bg-blue-50 w-20">상담료증감률</th>
+              <th className="p-3 w-20">미작성후기</th>
+              <th className="p-3 w-16">부재중</th>
+              <th className="p-3 text-left w-72">이슈/비고</th>
+              <th className="p-3 min-w-[350px]">메모</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-200 bg-white">
+            {data.map((row, idx) => {
+              const timeColor = row.timeRate < 0 ? 'text-red-600' : 'text-blue-600';
+              const revColor = row.revRate < 0 ? 'text-red-600' : 'text-blue-600';
+              let rowClass = 'hover:bg-gray-50';
+              let stickyClass = 'bg-white';
+              if (row.status === 'blind') { rowClass = 'bg-red-50 hover:bg-red-100'; stickyClass = 'bg-red-50'; } 
+              else if (row.status === 'new') { rowClass = 'bg-yellow-50 hover:bg-yellow-100'; stickyClass = 'bg-yellow-50'; }
+
+              return (
+                  <tr key={idx} className={rowClass}>
+                    <td className={`p-3 font-bold sticky left-0 border-r z-10 text-gray-800 ${stickyClass}`}>{row.nick}</td>
+                    <td className="p-3">{row.category}</td>
+                    <td className="p-3">{row.levelCat}</td>
+                    <td className="p-3">{row.level}</td>
+                    {isMonthly && <td className="p-3 font-bold text-indigo-600">{row.promotionStatus}</td>}
+                    <td className="p-3"><div className="font-medium">{fmtTime(row.curTime)}</div>{renderDelta(row.timeDelta, 'time')}</td>
+                    <td className={`p-3 ${timeColor}`}>{fmtRate(row.timeRate * 100)}</td>
+                    <td className="p-3"><div className="font-medium">{fmt(row.curRev)}</div>{renderDelta(row.revDelta, 'money')}</td>
+                    <td className={`p-3 ${revColor}`}>{fmtRate(row.revRate * 100)}</td>
+                    <td className={`p-3 font-bold ${row.unanswered > 0 ? 'text-red-600' : 'text-gray-400'}`}>{row.unanswered}</td>
+                    <td className="p-3">{row.curMissed}</td>
+                    <td className="p-3 text-left">
+                      <div className="flex flex-col gap-1 items-start">
+                        {row.remarks!=='-' && <span className="text-gray-600 bg-white border px-1 rounded text-[11px] font-medium">{row.remarks}</span>}
+                        {row.issues.map(code => <span key={code} className="px-2 py-0.5 rounded text-[10px] font-bold border flex items-center gap-1 bg-yellow-50 text-yellow-700 border-yellow-200">{ISSUE_LABELS[code] || code}</span>)}
+                      </div>
+                    </td>
+                    <td className="p-3"><input className="border rounded px-2 py-1 w-full bg-white" value={memo[row.nick]||''} onChange={e=>setMemo({...memo,[row.nick]:e.target.value})} /></td>
+                  </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 };
@@ -311,8 +306,8 @@ const PerformanceReportTable = ({ data }) => {
         const headers = ['분야', '단계', '단계', '상담사', '2달전매출', '1달전매출', '매출증감', '2달전시간', '1달전시간', '시간증감', '사유', '목표'];
         const rows = data.map(r => [
             r.category, r.levelCat, r.level, r.nick,
-            r.prevRev + '원', r.curRev + '원', (r.revRate*100).toFixed(1)+'%',
-            `${Math.floor(r.prevTime/60)}시간 ${r.prevTime%60}분`, `${Math.floor(r.curTime/60)}시간 ${r.curTime%60}분`, (r.timeRate*100).toFixed(1)+'%',
+            r.lastRevenue + '원', r.thisRevenue + '원', (r.revRate*100).toFixed(1)+'%',
+            `${Math.floor(r.lastTime/60)}시간 ${r.lastTime%60}분`, `${Math.floor(r.thisTime/60)}시간 ${r.thisTime%60}분`, (r.timeRate*100).toFixed(1)+'%',
             r.reason, r.goal
         ].join('\t')).join('\n');
         navigator.clipboard.writeText(headers.join('\t')+'\n'+rows);
@@ -324,28 +319,17 @@ const PerformanceReportTable = ({ data }) => {
     return (
         <div>
             <div className="flex justify-between items-center mb-4"><h3 className="font-bold text-lg">📝 성과 분석 보고서</h3><button onClick={copyToClipboard} className="bg-green-600 text-white px-4 py-2 rounded font-bold text-sm">엑셀 복사</button></div>
-            <div className="overflow-x-auto border rounded-lg max-h-[600px]">
-                <table className="w-full text-xs text-center border-collapse">
-                    <thead className="bg-gray-100 sticky top-0 shadow-sm text-gray-700">
-                        {/* [수정] key={h} 대신 key={i}를 사용하여 중복 키 오류 해결 */}
-                        <tr>{['분야', '단계', '단계', '상담사', '2달전 매출', '1달전 매출', '매출증감', '2달전 시간', '1달전 시간', '시간증감', '사유', '목표'].map((h, i)=><th key={i} className="p-2 border">{h}</th>)}</tr>
-                    </thead>
-                    <tbody>
-                    {data.map((r, i) => (
-                        <tr key={i} className="hover:bg-gray-50">
-                            <td className="p-2 border">{r.category}</td><td className="p-2 border">{r.levelCat}</td><td className="p-2 border">{r.level}</td><td className="p-2 border font-bold">{r.nick}</td>
-                            <td className="p-2 border">{(r.prevRev||0).toLocaleString()}원</td>
-                            <td className="p-2 border">{(r.curRev||0).toLocaleString()}원</td>
-                            <td className={`p-2 border ${r.revRate>0?'text-blue-600':'text-red-600'}`}>{r.revRate>0?'+':''}{(r.revRate*100).toFixed(1)}%</td>
-                            <td className="p-2 border">{Math.floor((r.prevTime||0)/60)}시간 {(r.prevTime||0)%60}분</td>
-                            <td className="p-2 border">{Math.floor((r.curTime||0)/60)}시간 {(r.curTime||0)%60}분</td>
-                            <td className={`p-2 border ${r.timeRate>0?'text-blue-600':'text-red-600'}`}>{r.timeRate>0?'+':''}{(r.timeRate*100).toFixed(1)}%</td>
-                            <td className="p-2 border text-left truncate max-w-xs" title={r.reason}>{r.reason}</td><td className="p-2 border text-left truncate max-w-xs" title={r.goal}>{r.goal}</td>
-                        </tr>
-                    ))}
-                    </tbody>
-                </table>
-            </div>
+            <div className="overflow-x-auto border rounded-lg max-h-[600px]"><table className="w-full text-xs text-center border-collapse"><thead className="bg-gray-100 sticky top-0 shadow-sm text-gray-700"><tr>{['분야', '단계', '단계', '상담사', '2달전 매출', '1달전 매출', '매출증감', '2달전 시간', '1달전 시간', '시간증감', '사유', '목표'].map(h=><th key={h} className="p-2 border">{h}</th>)}</tr></thead><tbody>
+            {data.map((r, i) => (
+                <tr key={i} className="hover:bg-gray-50">
+                    <td className="p-2 border">{r.category}</td><td className="p-2 border">{r.levelCat}</td><td className="p-2 border">{r.level}</td><td className="p-2 border font-bold">{r.nick}</td>
+                    <td className="p-2 border">{(r.lastRevenue||0).toLocaleString()}원</td><td className="p-2 border">{(r.thisRevenue||0).toLocaleString()}원</td>
+                    <td className={`p-2 border ${r.revRate>0?'text-blue-600':'text-red-600'}`}>{r.revRate>0?'+':''}{(r.revRate*100).toFixed(1)}%</td>
+                    <td className="p-2 border">{Math.floor((r.lastTime||0)/60)}시간 {(r.lastTime||0)%60}분</td><td className="p-2 border">{Math.floor((r.thisTime||0)/60)}시간 {(r.thisTime||0)%60}분</td>
+                    <td className={`p-2 border ${r.timeRate>0?'text-blue-600':'text-red-600'}`}>{r.timeRate>0?'+':''}{(r.timeRate*100).toFixed(1)}%</td>
+                    <td className="p-2 border text-left truncate max-w-xs" title={r.reason}>{r.reason}</td><td className="p-2 border text-left truncate max-w-xs" title={r.goal}>{r.goal}</td>
+                </tr>
+            ))}</tbody></table></div>
         </div>
     );
 };
@@ -397,13 +381,12 @@ const AdManager = ({ data, history, setHistory }) => {
   };
 
   const handleApply = (nick, levelCat, adType) => {
-    if(!confirm(`${nick}님의 [${adType}] 광고를 신청합니다.`)) return;
+    if(!confirm(`${nick}님의 [${adType}] 광고를 신청합니까?`)) return;
     const key = `${nick}_${adType}`;
     setHistory(p => ({ ...p, [key]: new Date().toISOString().split('T')[0] }));
     const groupKey = `${levelCat}`;
     setRequests(prev => {
         const newReq = { ...prev };
-        
         if(!newReq[groupKey]) newReq[groupKey] = {};
         if(!newReq[groupKey][adType]) newReq[groupKey][adType] = [];
         if(!newReq[groupKey][adType].includes(nick)) newReq[groupKey][adType].push(nick);
@@ -464,7 +447,7 @@ const AdManager = ({ data, history, setHistory }) => {
                                 <span className="font-medium text-gray-700">{ad}</span>
                                 <div className="flex gap-2 items-center">
                                     {s.cool ? <span className="text-red-500 font-bold bg-red-50 px-2 py-1 rounded border border-red-100 flex items-center gap-1"><Clock size={10}/> {s.msg}</span> : <button onClick={()=>handleApply(r.nick, r.levelCat, ad)} className="bg-indigo-600 text-white px-3 py-1 rounded hover:bg-indigo-700 transition shadow-sm">신청</button>}
-                                    {s.date && <button onClick={()=>{ if(confirm('기록을 삭제하시겠습니까?')) { const n={...history}; delete n[`${r.nick}_${ad}`]; setHistory(n); }}} className="text-gray-300 hover:text-red-500 p-1">×</button>}
+                                    {s.date && <button onClick={()=>{ if(confirm('기록삭제?')) { const n={...history}; delete n[`${r.nick}_${ad}`]; setHistory(n); }}} className="text-gray-300 hover:text-red-500 p-1">×</button>}
                                 </div>
                             </div>
                         )
