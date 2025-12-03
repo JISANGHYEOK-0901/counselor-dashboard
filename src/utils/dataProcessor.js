@@ -55,13 +55,12 @@ const findVal = (row, ...candidates) => {
   return undefined;
 };
 
-// [수정] 데이터 병합 로직 강화 (숫자/등급 인식 개선)
+// [수정] 데이터 병합 로직 강화
 const aggregateData = (rawData) => {
     if (!Array.isArray(rawData)) return [];
     const map = {};
     let lastMeta = { nick: '', realName: '', category: '-', levelCat: '-', levelVal: '', phone: '' };
     
-    // 텍스트 정리 헬퍼
     const cleanStr = (val) => String(val || '').trim();
     const normalizeLevel = (val) => String(val || '').replace(/\s+/g, '').trim();
 
@@ -115,15 +114,14 @@ const aggregateData = (rawData) => {
     });
 
     return Object.values(map).map(row => {
-        row.unanswered = row.reviews - row.answers;
-        // [중요] 레벨 숫자 추출 강화
-        // 상세단계(levelVal)에 숫자가 없으면 등급(levelCat)에서라도 숫자를 찾음 (예: "그린1" -> 1)
+        // [수정] 5번 요청: 미작성 후기가 음수가 되지 않도록 Math.max(0, ...) 적용
+        row.unanswered = Math.max(0, row.reviews - row.answers);
+        
         let ln = parseInt(String(row.levelVal || '').replace(/[^0-9]/g, '')) || 0;
         if (ln === 0 && row.levelCat) {
              ln = parseInt(String(row.levelCat).replace(/[^0-9]/g, '')) || 0;
         }
         
-        // 등급 텍스트 정리 (그린, 퍼플만 남기기 위해)
         if (row.levelCat.includes('그린')) row.levelCat = '그린';
         else if (row.levelCat.includes('퍼플')) row.levelCat = '퍼플';
 
@@ -143,7 +141,6 @@ export const readData = (input, type = 'file') => {
       const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
       let headerRowIndex = -1;
       
-      // 헤더 행 찾기
       for (let i = 0; i < Math.min(aoa.length, 50); i++) {
         const row = aoa[i];
         if (Array.isArray(row)) {
@@ -163,11 +160,9 @@ export const readData = (input, type = 'file') => {
       const uniqueHeaders = [];
       const headerCount = {};
 
-      // [핵심 수정] 중복된 헤더 이름 처리 (예: 단계 -> 단계, 단계 -> 단계_1)
       rawHeaders.forEach((h) => {
           let headerName = (h && typeof h === 'string') ? h.trim() : '';
           
-          // 헤더가 비어있을 경우 임시 이름 부여
           if (!headerName) {
               uniqueHeaders.push(`__EMPTY_${uniqueHeaders.length}`);
               return;
@@ -178,20 +173,17 @@ export const readData = (input, type = 'file') => {
               uniqueHeaders.push(headerName);
           } else {
               headerCount[headerName]++;
-              // 중복 발견 시 _1, _2 등을 붙여서 구분
               uniqueHeaders.push(`${headerName}_${headerCount[headerName]}`);
           }
       });
 
       const rawData = [];
-      // 데이터 매핑
       for (let i = headerRowIndex + 1; i < aoa.length; i++) {
         const row = aoa[i];
         const obj = {};
         let hasData = false;
         
         uniqueHeaders.forEach((headerName, colIndex) => {
-          // __EMPTY로 시작하는 임시 헤더는 데이터에서 제외 (선택사항)
           if (!headerName.startsWith('__EMPTY')) {
             const val = row[colIndex];
             obj[headerName] = val;
@@ -269,37 +261,36 @@ export const processWeeklyAnalysis = (currentRaw, pastRaw = [], historyData = {}
     if (curMissed >= 10) issues.push('C');
     if (unanswered >= 5) issues.push('D');
 
-    // [수정] 광고 자격 판별 로직 완화
     const hasChat = String(services).includes('채팅') || String(services).toLowerCase().includes('chat');
     const adEligibleTypes = [];
     
-    // 등급이 '그린'이나 '퍼플'을 포함하고, 1단계 이상인 경우
     const isGreen = levelCat.includes('그린');
     const isPurple = levelCat.includes('퍼플');
 
     if ((isGreen || isPurple) && levelNum >= 1) {
         let catKey = '기타';
-        // 카테고리 매칭도 포함 여부로 유연하게 검사
         if (category.includes('타로')) catKey = '타로';
         else if (category.includes('사주')) catKey = '사주';
         else if (category.includes('신점')) catKey = '신점';
 
-        // 유효한 카테고리인 경우 광고 목록 추가
         if (catKey !== '기타') {
             adEligibleTypes.push(`전화(${catKey})`);
             if (hasChat) adEligibleTypes.push(`채팅(${catKey})`);
             
-            // 메인 광고 자격 심사
             if (hasChat) adEligibleTypes.push('채팅(메인)');
             
+            // [검증 완료] 2번 요청: 메인 광고 시간 기준 적용 (그린 30h, 퍼플 60h)
             let canPhoneMain = false;
             const hours = curTime / 60;
-            if (levelNum >= 3) canPhoneMain = true;
-            else {
+            
+            if (levelNum >= 3) {
+                canPhoneMain = true; // 3단계 이상은 시간 무관
+            } else {
                 // 그린/퍼플 여부에 따라 시간 기준 적용
-                const limit = isPurple ? 60 : 30;
+                const limit = isPurple ? 60 : 30; // 퍼플 60시간, 그린 30시간
                 if (hours >= limit) canPhoneMain = true;
             }
+            
             if (canPhoneMain) adEligibleTypes.push('전화(메인)');
         }
     }
@@ -315,7 +306,6 @@ export const processWeeklyAnalysis = (currentRaw, pastRaw = [], historyData = {}
     };
   }).filter(r => r !== null);
 
-  // 블라인드 상담사 처리
   const currentRealNames = new Set(results.map(r => r.realName));
   pastData.forEach(row => {
       const isRenamed = results.some(r => r.realName === row.realName);
@@ -333,7 +323,7 @@ export const processWeeklyAnalysis = (currentRaw, pastRaw = [], historyData = {}
 };
 
 // ==========================================
-// 5. 월간 분석 (승급심사 로직 유지)
+// 5. 월간 분석
 // ==========================================
 export const processMonthlyAnalysis = (thisMonth, lastMonth = []) => {
     const basicData = processWeeklyAnalysis(thisMonth, lastMonth);
@@ -345,7 +335,6 @@ export const processMonthlyAnalysis = (thisMonth, lastMonth = []) => {
         let promotionStatus = '-';
         const nextLevelNum = row.levelNum + 1;
         
-        // 등급 텍스트 정규화
         const cleanLevelCat = row.levelCat.includes('퍼플') ? '퍼플' : '그린';
         const currentFullLevel = `${cleanLevelCat}${row.levelNum}단계`; 
         const nextFullLevel = `${cleanLevelCat}${nextLevelNum}단계`; 
