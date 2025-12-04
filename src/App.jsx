@@ -226,15 +226,30 @@ const DashboardView = ({ data, memo, setMemo, isMonthly }) => {
   const [showModal, setShowModal] = useState(false);
 
   const fmt = (n) => (n || 0).toLocaleString();
-  const fmtTime = (m) => `${Math.floor(m/60)}h ${m%60}m`;
+
+  // [수정 1] 시간 포맷 변경 (h m -> 시간 분)
+  const fmtTime = (m) => `${Math.floor(m/60)}시간 ${m%60}분`;
+
   const fmtRate = (n) => (n || 0).toFixed(1) + '%';
 
+  // [수정 2] 증감 표시 로직 변경 (-기호 명시)
   const renderDelta = (val, type) => {
     if (!val || val === 0) return null;
     const isPos = val > 0;
     const color = isPos ? 'text-blue-600' : 'text-red-600';
-    const sign = isPos ? '+' : '';
-    let text = type === 'time' ? `${sign}${fmtTime(val)}` : `${sign}${Math.abs(val).toLocaleString()}원`;
+    
+    // 부호 명시: 양수면 +, 음수면 -
+    const sign = isPos ? '+' : '-';
+    
+    // 값은 절대값으로 변환하여 포맷팅 (이중 부호 방지)
+    const absVal = Math.abs(val);
+
+    let text = '';
+    if (type === 'time') {
+        text = `${sign}${fmtTime(absVal)}`; // 예: -5시간 30분
+    } else {
+        text = `${sign}${absVal.toLocaleString()}원`; // 예: -15,000원
+    }
     return <div className={`text-xs ${color}`}>{text}</div>;
   };
 
@@ -250,7 +265,8 @@ const DashboardView = ({ data, memo, setMemo, isMonthly }) => {
         <BarChart data={dataset} margin={{top:20, right:30, left:20, bottom:5}}>
             <CartesianGrid strokeDasharray="3 3" vertical={false} />
             <XAxis dataKey="nick" tick={{fontSize:14}} interval={0} />
-            <YAxis tickFormatter={(val) => chartType==='revenue' ? `${val/10000}만` : `${Math.floor(val/60)}h`} tick={{fontSize:12}} />
+            {/* [수정 3] 차트 Y축 라벨도 h -> 시간 으로 변경 */}
+            <YAxis tickFormatter={(val) => chartType==='revenue' ? `${val/10000}만` : `${Math.floor(val/60)}시간`} tick={{fontSize:12}} />
             <Tooltip 
                 formatter={(val, name) => [chartType==='revenue' ? fmt(val)+'원' : fmtTime(val), name]}
                 labelStyle={{color:'black', fontSize: '14px'}}
