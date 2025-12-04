@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Upload, CheckCircle, RefreshCw, TrendingUp, BarChart2, Clock, Copy, Filter, Save, AlertTriangle, Clipboard, X, Trash2, ArrowRightCircle, UserPlus, FileText, Maximize2 } from 'lucide-react';
+import { Upload, CheckCircle, RefreshCw, TrendingUp, BarChart2, Clock, Copy, Filter, Save, AlertTriangle, Clipboard, X, Trash2, ArrowLeftCircle, UserPlus, FileText, Maximize2, Download } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { readData, processWeeklyAnalysis, processMonthlyAnalysis, processPerformanceReport, processRevenueSummary, AD_CYCLES } from './utils/dataProcessor';
+import { generateMonthlyReportExcel } from './utils/excelGenerator';
 
 const ISSUE_LABELS = { 'A': 'A 접속시간', 'B': 'B 정산금액', 'C': 'C 부재중', 'D': 'D 후기', 'C(월간부재)': 'C 월간부재', '시간미달': '시간미달' };
 
@@ -13,6 +14,9 @@ function App() {
   const [memo, setMemo] = useState(() => JSON.parse(localStorage.getItem('dashboardMemo')) || {});
   const [adHistory, setAdHistory] = useState(() => JSON.parse(localStorage.getItem('adHistory')) || {});
   const [pasteModal, setPasteModal] = useState({ open: false, target: '' });
+
+  // [추가] 월 입력을 위한 state (기본값: 현재 달)
+  const [targetMonth, setTargetMonth] = useState(new Date().getMonth() + 1);
 
   useEffect(() => localStorage.setItem('dashboardData', JSON.stringify(persistedData)), [persistedData]);
   useEffect(() => localStorage.setItem('dashboardMemo', JSON.stringify(memo)), [memo]);
@@ -74,6 +78,35 @@ function App() {
     alert("분석 완료!");
   };
 
+const moveThisMonthToLast = () => {
+      if(!tempFiles.thisMonth) return alert("이동할 '이번달' 데이터가 없습니다.");
+      if(!confirm("이번달 데이터를 지난달로 이동하시겠습니까? (이전 지난달 데이터는 덮어씌워집니다)")) return;
+      setTempFiles(prev => ({ ...prev, lastMonth: prev.thisMonth, thisMonth: null }));
+      alert("이동 완료!");
+  };
+
+  const handleDownloadReport = () => {
+      if (!tempFiles.thisMonth || !tempFiles.lastMonth) {
+          return alert("월말 정산 리포트를 생성하려면 '이번달'과 '지난달' 데이터가 모두 필요합니다.");
+      }
+      try {
+
+          
+          const processedCurrent = processWeeklyAnalysis(tempFiles.thisMonth.data, tempFiles.lastMonth.data);
+          
+          // 지난달 데이터는 그 전달(2달전) 데이터가 없으므로 빈 배열 []로 둡니다 (단순 수치 참조용)
+          const processedPast = processWeeklyAnalysis(tempFiles.lastMonth.data, []);
+
+          // 엑셀 생성 함수 호출
+          generateMonthlyReportExcel(processedCurrent, processedPast, targetMonth);
+
+          alert("엑셀 파일 다운로드가 시작되었습니다.");
+      } catch (e) {
+          console.error(e);
+          alert("다운로드 중 오류 발생: " + e.message);
+      }
+  };
+
   const TABS = [
     { id: 'weekly', label: '📊 주간 대시보드' },
     { id: 'monthly', label: '📅 월간 대시보드' },
@@ -97,7 +130,7 @@ function App() {
       <div className="bg-white shadow-sm border-b p-6 sticky top-0 z-20">
         <div className="max-w-7xl mx-auto">
           <div className="flex justify-between items-center mb-6">
-            <h1 className="text-2xl font-bold text-indigo-600 flex items-center gap-2"><TrendingUp /> 상담사 통합 관리 V32</h1>
+            <h1 className="text-2xl font-bold text-indigo-600 flex items-center gap-2"><TrendingUp /> 상담사 통합 관리 V33</h1>
             <div className="flex items-center gap-4">
                 <button onClick={resetAll} className="bg-red-50 text-red-600 px-3 py-2 rounded font-bold text-xs flex items-center gap-1 hover:bg-red-100 transition"><Trash2 size={14}/> 데이터 초기화</button>
                 <div className="flex bg-gray-100 p-1 rounded-lg">
@@ -110,18 +143,47 @@ function App() {
                 {activeTab === 'weekly' ? (
                     <>
                         <UploadBox label="1. 지난주 (선택)" fileData={tempFiles.lastWeek} onUpload={(e)=>handleUpload(e, 'lastWeek')} onPaste={()=>setPasteModal({open:true, target:'lastWeek'})} />
-                        <div className="flex flex-col justify-center items-center px-2"><button onClick={moveThisToLast} className="text-gray-400 hover:text-indigo-600 transition" title="금주 데이터를 지난주로 이동"><ArrowRightCircle size={24} /></button></div>
+                        <div className="flex flex-col justify-center items-center px-2"><button onClick={moveThisToLast} className="text-gray-400 hover:text-indigo-600 transition" title="금주 데이터를 지난주로 이동"><ArrowLeftCircle size={24} /></button></div>
                         <UploadBox label="2. 이번주 (필수)" fileData={tempFiles.thisWeek} onUpload={(e)=>handleUpload(e, 'thisWeek')} onPaste={()=>setPasteModal({open:true, target:'thisWeek'})} color="blue" />
                     </>
                 ) : (
                     <>
                         <UploadBox label="1. 비교 데이터 (과거)" fileData={tempFiles.lastMonth} onUpload={(e)=>handleUpload(e, 'lastMonth')} onPaste={()=>setPasteModal({open:true, target:'lastMonth'})} />
-                        <UploadBox label="2. 기준 데이터 (최신)" fileData={tempFiles.thisMonth} onUpload={(e)=>handleUpload(e, 'thisMonth')} onPaste={()=>setPasteModal({open:true, target:'thisMonth'})} color="purple" />
+                       <button onClick={moveThisMonthToLast} className="text-gray-400 hover:text-indigo-600 transition" title="금월 데이터를 전월로 이동"><ArrowLeftCircle size={24} /></button>
+                       <UploadBox label="2. 기준 데이터 (최신)" fileData={tempFiles.thisMonth} onUpload={(e)=>handleUpload(e, 'thisMonth')} onPaste={()=>setPasteModal({open:true, target:'thisMonth'})} color="purple" />
                     </>
                 )}
-                <button onClick={runAnalysis} className="flex-1 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-bold flex flex-col items-center justify-center gap-2 transition shadow-md min-h-[100px]">
-                  <RefreshCw size={24} /> <span>분석 실행</span>
-                </button>
+                
+                <div className="flex flex-col gap-2 flex-1 min-w-[200px]">
+                    <button onClick={runAnalysis} className="flex-1 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-bold flex items-center justify-center gap-2 transition shadow-md w-full">
+                    <RefreshCw size={20} /> <span>분석 실행</span>
+                    </button>
+                    {activeTab === 'monthly' && (
+                        // [수정] 월 입력 및 버튼 변경
+                        <div className="flex items-center gap-2 bg-green-50 p-2 rounded-lg border border-green-100">
+                           <div className="flex items-center gap-1 bg-white rounded px-2 py-1 border border-green-200">
+                             <input 
+  type="number" 
+  min="1"
+  max="12"
+  className="w-10 text-center font-bold outline-none text-green-700 bg-transparent"
+  value={targetMonth} 
+  onChange={(e) => {
+    let val = parseInt(e.target.value);
+    if (isNaN(val)) val = ''; 
+    else if (val > 12) val = 12; // 12보다 크면 12로 고정
+    else if (val < 1) val = 1;   // 1보다 작으면 1로 고정
+    setTargetMonth(val);
+  }}
+/>
+                              <span className="text-xs font-bold text-green-700">월</span>
+                           </div>
+                           <button onClick={handleDownloadReport} className="flex-1 bg-green-600 text-white rounded-md py-2 hover:bg-green-700 font-bold flex items-center justify-center gap-2 transition shadow-sm text-sm">
+                              <Download size={16} /> <span>상담사매출확인 다운로드</span>
+                           </button>
+                        </div>
+                    )}
+                </div>
               </div>
           )}
         </div>
@@ -159,7 +221,6 @@ const UploadBox = ({ label, fileData, onUpload, onPaste, color='green' }) => {
     );
 };
 
-// [수정] DashboardView - 승급심사 컬럼 제거
 const DashboardView = ({ data, memo, setMemo, isMonthly }) => {
   const [chartType, setChartType] = useState('revenue');
   const [showModal, setShowModal] = useState(false);
@@ -243,7 +304,6 @@ const DashboardView = ({ data, memo, setMemo, isMonthly }) => {
               <th className="p-3 w-24">카테고리</th>
               <th className="p-3 w-24">단계</th>
               <th className="p-3 w-20">레벨</th>
-              {/* 승급심사 헤더 제거됨 */}
               <th className="p-3 bg-blue-50 w-32">접속시간</th>
               <th className="p-3 bg-blue-50 w-24">접속증감률</th>
               <th className="p-3 bg-blue-50 w-32">정산금액</th>
@@ -269,7 +329,6 @@ const DashboardView = ({ data, memo, setMemo, isMonthly }) => {
                     <td className="p-3">{row.category}</td>
                     <td className="p-3">{row.levelCat}</td>
                     <td className="p-3">{row.level}</td>
-                    {/* 승급심사 데이터 셀 제거됨 */}
                     <td className="p-3"><div className="font-medium">{fmtTime(row.curTime)}</div>{renderDelta(row.timeDelta, 'time')}</td>
                     <td className={`p-3 ${timeColor}`}>{fmtRate(row.timeRate * 100)}</td>
                     <td className="p-3"><div className="font-medium">{fmt(row.curRev)}</div>{renderDelta(row.revDelta, 'money')}</td>
@@ -336,7 +395,6 @@ const PerformanceReportTable = ({ data }) => {
     );
 };
 
-// [수정] 월매출 요약 - 3번(순서변경), 4번(부호추가) 반영
 const RevenuePage = ({ summary, memo, setMemo }) => {
     const fmt = (n) => n?.toLocaleString() || 0;
     return (
@@ -347,7 +405,6 @@ const RevenuePage = ({ summary, memo, setMemo }) => {
                 <div className="bg-indigo-50 p-5 rounded border border-indigo-100 col-span-2"><div className="text-sm text-indigo-600 font-bold mb-3">인원 현황</div><div className="flex justify-between text-base"><span>기존: <b>{summary.existingCount}</b></span><span>신규: <b className="text-blue-600">{summary.newCount}</b></span><span>블라인드: <b className="text-red-500">{summary.blindCount}</b></span></div></div>
             </div>
             <div className="grid grid-cols-2 gap-4">
-                {/* 순서 변경: 신규 상담사를 왼쪽, 블라인드를 오른쪽 */}
                 {summary.newList && summary.newList.length > 0 && (
                     <div className="border rounded-xl p-6 bg-yellow-50 border-yellow-100">
                         <h4 className="font-bold text-yellow-700 mb-4 text-base flex items-center gap-2"><UserPlus size={18}/> 신규 상담사</h4>
@@ -366,7 +423,6 @@ const RevenuePage = ({ summary, memo, setMemo }) => {
     );
 };
 
-// [수정] AdManager - 등급별(그린/퍼플) 배경색 통일
 const AdManager = ({ data, history, setHistory }) => {
   const [filterLevel, setFilterLevel] = useState('all'); 
   const [filterType, setFilterType] = useState('all');   
@@ -391,7 +447,6 @@ const AdManager = ({ data, history, setHistory }) => {
     const groupKey = `${levelCat}`;
     const currentGroupRequests = requests[groupKey] || {};
     
-    // 상호 배타적 신청 로직
     let hasConflict = false;
     const oppositeType = isPhone ? '채팅' : '전화';
     
@@ -463,13 +518,10 @@ const AdManager = ({ data, history, setHistory }) => {
                 const phoneAds = r.adEligibleTypes.filter(t => t.includes('전화')).sort((a,b) => a.includes('메인') ? -1 : 1);
                 const chatAds = r.adEligibleTypes.filter(t => t.includes('채팅')).sort((a,b) => a.includes('메인') ? -1 : 1);
 
-                // [수정] 등급에 따른 색상 테마 결정
                 const isPurple = r.levelCat.includes('퍼플');
                 const themeClass = isPurple ? 'bg-purple-50 border-purple-100' : 'bg-green-50 border-green-100';
                 const textClass = isPurple ? 'text-purple-900' : 'text-green-900';
-                const btnClass = isPurple 
-                    ? 'bg-purple-600 hover:bg-purple-700' 
-                    : 'bg-green-600 hover:bg-green-700';
+                const btnClass = isPurple ? 'bg-purple-600 hover:bg-purple-700' : 'bg-green-600 hover:bg-green-700';
 
                 return (
                     <div key={i} className="border border-gray-200 rounded-lg p-5 bg-white shadow-sm h-fit hover:border-indigo-300 transition-colors">
@@ -479,7 +531,6 @@ const AdManager = ({ data, history, setHistory }) => {
                         </div>
                         
                         <div className="grid grid-cols-1 gap-4">
-                            {/* 전화 섹션 */}
                             {phoneAds.length > 0 && (
                                 <div>
                                     <div className="text-xs font-bold text-gray-500 mb-2 flex items-center gap-1">📞 전화 상담</div>
@@ -502,7 +553,6 @@ const AdManager = ({ data, history, setHistory }) => {
                                 </div>
                             )}
 
-                            {/* 채팅 섹션 */}
                             {chatAds.length > 0 && (
                                 <div>
                                     <div className="text-xs font-bold text-gray-500 mb-2 flex items-center gap-1 mt-1">💬 채팅 상담</div>
