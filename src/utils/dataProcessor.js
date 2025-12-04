@@ -1,28 +1,27 @@
 import * as XLSX from 'xlsx';
 
 // ==========================================
-// 1. 설정값 (광고/승급/정산비율)
+// 1. 설정값 및 헬퍼 함수 (순서 중요: 가장 먼저 정의되어야 함)
 // ==========================================
+
 export const AD_CYCLES = {
   '그린': { '전화': { '메인': 4, '타로': 4, '사주': 2, '신점': 3 }, '채팅': { '메인': 2, '타로': 2, '사주': 1, '신점': 1 } },
   '퍼플': { '전화': { '메인': 6, '타로': 6, '사주': 2, '신점': 5 }, '채팅': { '메인': 2, '타로': 2, '사주': 1, '신점': 1 } }
 };
 
 const LEVEL_STANDARDS = {
-    '그린1단계': { revenue: 300000, months: 1 }, '그린2단계': { revenue: 850000, months: 1 }, '그린3단계': { revenue: 2750000, months: 2 },
-    '그린4단계': { revenue: 5000000, months: 2 }, '그린5단계': { revenue: 8000000, months: 2 }, '그린6단계': { revenue: 11000000, months: 3 },
-    '퍼플1단계': { revenue: 600000, months: 1 }, '퍼플2단계': { revenue: 1600000, months: 2 }, '퍼플3단계': { revenue: 5200000, months: 2 },
-    '퍼플4단계': { revenue: 9300000, months: 3 }, '퍼플5단계': { revenue: 14500000, months: 3 }, '퍼플6단계': { revenue: 21000000, months: 3 }
+  '그린1단계': { revenue: 300000, months: 1 }, '그린2단계': { revenue: 850000, months: 1 }, '그린3단계': { revenue: 2750000, months: 2 },
+  '그린4단계': { revenue: 5000000, months: 2 }, '그린5단계': { revenue: 8000000, months: 2 }, '그린6단계': { revenue: 11000000, months: 3 },
+  '퍼플1단계': { revenue: 600000, months: 1 }, '퍼플2단계': { revenue: 1600000, months: 2 }, '퍼플3단계': { revenue: 5200000, months: 2 },
+  '퍼플4단계': { revenue: 9300000, months: 3 }, '퍼플5단계': { revenue: 14500000, months: 3 }, '퍼플6단계': { revenue: 21000000, months: 3 }
 };
 
 const SETTLEMENT_RATIOS = {
-    '퍼플6단계': 0.70, '퍼플5단계': 0.66, '퍼플4단계': 0.62, '퍼플3단계': 0.58, '퍼플2단계': 0.54, '퍼플1단계': 0.50, '퍼플0단계': 0.45,
-    '그린6단계': 0.70, '그린5단계': 0.66, '그린4단계': 0.62, '그린3단계': 0.58, '그린2단계': 0.54, '그린1단계': 0.50, '그린0단계': 0.45
+  '퍼플6단계': 0.70, '퍼플5단계': 0.66, '퍼플4단계': 0.62, '퍼플3단계': 0.58, '퍼플2단계': 0.54, '퍼플1단계': 0.50, '퍼플0단계': 0.45,
+  '그린6단계': 0.70, '그린5단계': 0.66, '그린4단계': 0.62, '그린3단계': 0.58, '그린2단계': 0.54, '그린1단계': 0.50, '그린0단계': 0.45
 };
 
-// ==========================================
-// 2. 파싱 헬퍼
-// ==========================================
+// 헬퍼: 데이터 정규화 및 파싱
 const normalize = (val) => String(val || '').replace(/\s+/g, '').trim();
 
 const parseNum = (val) => {
@@ -55,7 +54,56 @@ const findVal = (row, ...candidates) => {
   return undefined;
 };
 
-// [수정] 데이터 집계 로직 강화 (만족도, 콜수 상세 파싱)
+// ⚠️ 중요: analyzeReasonAndGoal 함수를 processWeeklyAnalysis보다 위로 올림
+export const analyzeReasonAndGoal = (timeRate, revRate, hasCur, hasPrev, curTimeMinutes) => {
+  const noChangeThreshold = 0.07; // 7%
+  const THIRTY_HOURS_MIN = 30 * 60; // 30시간
+
+  let reason = '-';
+  let goal = '';
+
+  if (!hasCur && hasPrev) {
+    reason = '블라인드 상담사';
+    goal = '-';
+  } else if (hasCur && !hasPrev) {
+    reason = '신규 상담사';
+    goal = '플랫폼에 대한 이해 필요, 본인의 규칙적인 접속시간 설정 및 포스팅 작성, 공지사항 안내를 통한 고객확보 필요';
+  } else if (hasCur && curTimeMinutes < THIRTY_HOURS_MIN) {
+    reason = '접속은 하였으나 접속시간 매우부족';
+    goal = '접속시간 증가 필요, 규칙적인 접속시간 유지 및 단골 확보하여 매출 높일 수 있도록 목표설정';
+  } else if (Math.abs(timeRate) <= noChangeThreshold && Math.abs(revRate) <= noChangeThreshold) {
+    reason = '접속시간과 상담료 큰 차이없음';
+    goal = '본인의 규칙적인 접속시간을 고정하고 공지하며, 고객 1:1문의, 후기 답변등으로 단골 확보하여 매출 높일 수 있도록 목표 설정';
+  } else if (Math.abs(timeRate) <= noChangeThreshold && revRate > 0) {
+    reason = '접속시간 큰 차이 없으나 매출 증가';
+    goal = '지금과 같이 규칙적인 접속시간 유지 및 단골 확보하여 매출 높일 수 있도록 목표 설정 및 단계 상승을 위해 노력 필요';
+  } else if (Math.abs(timeRate) <= noChangeThreshold && revRate < 0) {
+    reason = '접속시간 큰 차이없으나 매출 하락';
+    goal = '접속시간은 유지하며 후기 작성, 부재중 관리하며 단골을 늘일 수 있도록 목표설정';
+  } else if (Math.abs(revRate) <= noChangeThreshold && timeRate < 0) {
+    reason = '접속시간 하락하였으나 매출 큰 차이 없음';
+    goal = '상담 인입이 줄어드는 추세로 본인의 규칙적인 접속시간 설정 및 포스팅 작성, 공지사항 안내를 통한 단골확보 필요';
+  } else if (revRate > 0 && timeRate > 0) {
+    reason = '접속시간 증가로 인한 매출 증가';
+    goal = '지금과 같이 규칙적인 접속시간 유지 및 단골 확보하여 매출 높일 수 있도록 목표 설정';
+  } else if (revRate > 0 && timeRate < 0) {
+    reason = '접속시간 하락하였으나 매출 증가';
+    goal = '접속시간 증가 필요, 규칙적인 접속시간 유지 및 단골 확보하여 매출 높일 수 있도록 목표 설정';
+  } else if (revRate < 0 && timeRate > 0) {
+    reason = '접속시간 증가하였으나 매출 하락';
+    goal = '지속 접속하기보단 본인만의 규칙적인 접속시간 설정 및 공지가 필요하며 서비스 공지글 업데이트, 포스팅 작성 등을 통한 고객확보 필요';
+  } else if (revRate < 0 && timeRate < 0) {
+    reason = '접속시간 하락으로 인한 매출하락';
+    goal = '접속시간 증가 필요, 서비스 공지글 업데이트, 포스팅 작성 등을 통한 고객확보 필요.';
+  }
+
+  return { reason, goal };
+};
+
+// ==========================================
+// 2. 메인 처리 함수들
+// ==========================================
+
 export const aggregateData = (rawData) => {
     if (!Array.isArray(rawData)) return [];
     const map = {};
@@ -99,7 +147,6 @@ export const aggregateData = (rawData) => {
                 phone: phone || '',
                 services: '',
                 curRev: 0, curTime: 0, curMissed: 0, reviews: 0, answers: 0,
-                // [추가] 상세 데이터 필드 초기화
                 satisfaction: 0,
                 coinTotal: 0, coinSuccess: 0, coinFail: 0,
                 phoneTotal: 0, phoneSuccess: 0, phoneFail: 0,
@@ -113,7 +160,6 @@ export const aggregateData = (rawData) => {
         entry.curRev += parseNum(findVal(row, '전체정산 금액', '전체정산금액', '전체정산'));
         entry.curTime += parseTime(findVal(row, '접속시간'));
         
-        // [수정] 콜수 상세 파싱
         const cf = parseNum(findVal(row, '코인콜수 실패'));
         const cs = parseNum(findVal(row, '코인콜수 성공'));
         const pf = parseNum(findVal(row, '060콜수 실패'));
@@ -121,20 +167,19 @@ export const aggregateData = (rawData) => {
         
         entry.coinFail += cf;
         entry.coinSuccess += cs;
-        entry.coinTotal += (cf + cs); // 전체가 없으면 합산
+        entry.coinTotal += (cf + cs);
         
         entry.phoneFail += pf;
         entry.phoneSuccess += ps;
         entry.phoneTotal += (pf + ps);
 
-        entry.curMissed += (cf + pf); // 부재중은 실패 합계
+        entry.curMissed += (cf + pf);
         
         entry.reviews += parseNum(findVal(row, '후기수'));
         entry.answers += parseNum(findVal(row, '답변수'));
         
-        // [추가] 만족도 파싱
         const sat = parseNum(findVal(row, '만족도', '평점'));
-        if (sat > entry.satisfaction) entry.satisfaction = sat; // 평균이 아니라 로우 중 최대값 or 덮어쓰기 (원본 데이터 구조에 따라 조정)
+        if (sat > entry.satisfaction) entry.satisfaction = sat;
 
         const srv = findVal(row, '제공서비스', '서비스') || '';
         if (srv && !entry.services.includes(srv)) entry.services += `, ${srv}`;
@@ -151,7 +196,6 @@ export const aggregateData = (rawData) => {
         if (row.levelCat.includes('그린')) row.levelCat = '그린';
         else if (row.levelCat.includes('퍼플')) row.levelCat = '퍼플';
 
-        // levelStr 생성 보장
         row.levelStr = ln > 0 ? `${ln}단계` : (row.levelVal || '0단계');
         row.levelNum = ln;
         return row;
@@ -239,8 +283,6 @@ export const readData = (input, type = 'file') => {
   });
 };
 
-
-
 export const processWeeklyAnalysis = (currentRaw, pastRaw = [], historyData = {}) => {
   const currentData = aggregateData(currentRaw || []);
   const pastData = aggregateData(pastRaw || []);
@@ -273,12 +315,11 @@ export const processWeeklyAnalysis = (currentRaw, pastRaw = [], historyData = {}
     const revDelta = curRev - prevRev;
     const timeDelta = curTime - prevTime;
     
-    // 증감률 계산 함수
     const calcRate = (c, p) => p === 0 ? (c > 0 ? 1 : 0) : ((c - p) / p);
     const revRate = prevRow ? calcRate(curRev, prevRev) : 0;
     const timeRate = prevRow ? calcRate(curTime, prevTime) : 0;
 
-    // [수정 1] 사유 및 목표 분석 실행 및 데이터 포함
+    // 여기서 에러가 났었습니다! 이제 함수가 위에 있으니 안전합니다.
     const analysis = analyzeReasonAndGoal(timeRate, revRate, true, !!prevRow, curTime);
     if (isNew) { analysis.reason = '신규 상담사'; }
 
@@ -288,7 +329,6 @@ export const processWeeklyAnalysis = (currentRaw, pastRaw = [], historyData = {}
     if (curMissed >= 10) issues.push('C');
     if (unanswered >= 5) issues.push('D');
 
-    // ... (광고 가능 여부 로직 등 기존 코드 유지) ...
     const hasChat = String(services).includes('채팅') || String(services).toLowerCase().includes('chat');
     const adEligibleTypes = [];
     const isGreen = levelCat.includes('그린');
@@ -327,13 +367,10 @@ export const processWeeklyAnalysis = (currentRaw, pastRaw = [], historyData = {}
       satisfaction: row.satisfaction,
       coinTotal: row.coinTotal, coinSuccess: row.coinSuccess, coinFail: row.coinFail,
       phoneTotal: row.phoneTotal, phoneSuccess: row.phoneSuccess, phoneFail: row.phoneFail,
-      memo: row.memo, // 메모 필드 전달 중요 (파트너 로직용)
-      
+      memo: row.memo,
       remarks: remarks.join(', ') || '-',
       issues, adEligibleTypes,
       status: isNew ? 'new' : 'existing',
-      
-      // [중요] 분석된 사유와 목표를 결과 객체에 포함
       reason: analysis.reason,
       goal: analysis.goal
     };
@@ -430,49 +467,4 @@ export const processRevenueSummary = (thisMonthRaw, lastMonthRaw) => {
         existingCount, newCount, blindCount, 
         blindList, newList, analyzedCurrent
     };
-};
-
-export const analyzeReasonAndGoal = (timeRate, revRate, hasCur, hasPrev, curTimeMinutes) => {
-  const noChangeThreshold = 0.07; // 7%
-  const THIRTY_HOURS_MIN = 30 * 60; // 30시간
-
-  let reason = '-';
-  let goal = '';
-
-  if (!hasCur && hasPrev) {
-    reason = '블라인드 상담사';
-    goal = '-';
-  } else if (hasCur && !hasPrev) {
-    reason = '신규 상담사';
-    goal = '플랫폼에 대한 이해 필요, 본인의 규칙적인 접속시간 설정 및 포스팅 작성, 공지사항 안내를 통한 고객확보 필요';
-  } else if (hasCur && curTimeMinutes < THIRTY_HOURS_MIN) {
-    reason = '접속은 하였으나 접속시간 매우부족';
-    goal = '접속시간 증가 필요, 규칙적인 접속시간 유지 및 단골 확보하여 매출 높일 수 있도록 목표설정';
-  } else if (Math.abs(timeRate) <= noChangeThreshold && Math.abs(revRate) <= noChangeThreshold) {
-    reason = '접속시간과 상담료 큰 차이없음';
-    goal = '본인의 규칙적인 접속시간을 고정하고 공지하며, 고객 1:1문의, 후기 답변등으로 단골 확보하여 매출 높일 수 있도록 목표 설정';
-  } else if (Math.abs(timeRate) <= noChangeThreshold && revRate > 0) {
-    reason = '접속시간 큰 차이 없으나 매출 증가';
-    goal = '지금과 같이 규칙적인 접속시간 유지 및 단골 확보하여 매출 높일 수 있도록 목표 설정 및 단계 상승을 위해 노력 필요';
-  } else if (Math.abs(timeRate) <= noChangeThreshold && revRate < 0) {
-    reason = '접속시간 큰 차이없으나 매출 하락';
-    goal = '접속시간은 유지하며 후기 작성, 부재중 관리하며 단골을 늘일 수 있도록 목표설정';
-  } else if (Math.abs(revRate) <= noChangeThreshold && timeRate < 0) {
-    reason = '접속시간 하락하였으나 매출 큰 차이 없음';
-    goal = '상담 인입이 줄어드는 추세로 본인의 규칙적인 접속시간 설정 및 포스팅 작성, 공지사항 안내를 통한 단골확보 필요';
-  } else if (revRate > 0 && timeRate > 0) {
-    reason = '접속시간 증가로 인한 매출 증가';
-    goal = '지금과 같이 규칙적인 접속시간 유지 및 단골 확보하여 매출 높일 수 있도록 목표 설정';
-  } else if (revRate > 0 && timeRate < 0) {
-    reason = '접속시간 하락하였으나 매출 증가';
-    goal = '접속시간 증가 필요, 규칙적인 접속시간 유지 및 단골 확보하여 매출 높일 수 있도록 목표 설정';
-  } else if (revRate < 0 && timeRate > 0) {
-    reason = '접속시간 증가하였으나 매출 하락';
-    goal = '지속 접속하기보단 본인만의 규칙적인 접속시간 설정 및 공지가 필요하며 서비스 공지글 업데이트, 포스팅 작성 등을 통한 고객확보 필요';
-  } else if (revRate < 0 && timeRate < 0) {
-    reason = '접속시간 하락으로 인한 매출하락';
-    goal = '접속시간 증가 필요, 서비스 공지글 업데이트, 포스팅 작성 등을 통한 고객확보 필요.';
-  }
-
-  return { reason, goal };
 };
