@@ -105,15 +105,23 @@ const setZoom = (ws) => {
   ws['!views'].push({ zoomScale: 80 });
 };
 
-// 헬퍼: 시간 포맷
-const formatTime = (min) => {
-  const h = Math.floor(min / 60);
-  const m = min % 60;
-  return `${h}시간 ${m}분`;
+// 시간 포맷 변환 헬퍼 함수 (초 단위)
+const formatTime = (seconds) => {
+  if (!seconds) return "0시간 00분 00초";
+  
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+
+  // 분, 초는 보기 좋게 두 자리(01분, 05초)로 맞춥니다.
+  const mStr = m.toString().padStart(2, '0');
+  const sStr = s.toString().padStart(2, '0');
+
+  return `${h}시간 ${mStr}분 ${sStr}초`;
 };
 
-// 헬퍼: 정산금 계산
-const getSettleAmount = (row) => {
+// 헬퍼: 정산금(실지급액) 계산용 - 파트너 시트 등에서만 사용
+const getNetPayAmount = (row) => {
   let levelCat = row.levelCat || '';
   let levelVal = row.levelStr || row.level || '';
   let revenue = row.curRev || 0;
@@ -136,22 +144,16 @@ export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, target
   // ------------------------------------------------------------------
   // Sheet 1: 매출 증감 (사유 및 목표 포함)
   // ------------------------------------------------------------------
+  // 수정사항: 전체정산 -> 총매출(Gross)로 표기
   const s1Header = ['분야', '단계', '단계', '닉네임', '이전달 접속시간', '이번달 접속시간', '접속 증감률', '이전달 전체정산', '이번달 전체정산', '정산 증감률', '증감액', '증감사유', '목표설정'];
   const s1Data = [];
   
   const mergeText = '증액,하락\n통합\n(전체상담사)\n단계별로 정렬';
   
   analyzedCurrent.forEach((row, i) => {
-    // 블라인드가 아닌 경우 (블라인드는 하단에 따로 처리하거나 필터링됨, 여기선 active user 위주)
-    // analyzedPast에서 해당 유저의 이전달 정산금을 가져오거나 row.prevRev 사용
-    
-    // 이전달 정산금 추정 (단순 45%가 아니라 이전 레벨 기준이어야 정확하지만, 
-    // 여기선 데이터 프로세서에서 넘어온 prevRev를 현재 등급 비율로 계산하거나 
-    // row.prevRev(총매출) * 현재비율로 근사치 계산. 
-    // *정확성을 위해선 row.prevSettle이 넘어와야 하지만, 
-    // 편의상 현재 등급 비율로 계산합니다 (GAS코드와 유사 방식)*
-    const pSettle = row.prevRev ? getSettleAmount({...row, curRev: row.prevRev}) : 0; 
-    const lSettle = getSettleAmount(row);
+    // 요청사항: 전체정산금액은 비율 적용 전 금액(Gross Revenue)
+    const prevGross = row.prevRev || 0; 
+    const currGross = row.curRev || 0;
 
     s1Data.push([
       i === 0 ? mergeText : '', // A열 병합용 텍스트
@@ -162,12 +164,12 @@ export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, target
       formatTime(row.prevTime),
       formatTime(row.curTime),
       (row.timeRate * 100).toFixed(1) + '%',
-      pSettle,
-      lSettle,
+      prevGross, // 전체정산금액(비율X)
+      currGross, // 전체정산금액(비율X)
       (row.revRate * 100).toFixed(1) + '%',
-      lSettle - pSettle,
-      row.reason || '-',  // dataProcessor에서 넘어온 값
-      row.goal || '-'     // dataProcessor에서 넘어온 값
+      currGross - prevGross,
+      row.reason || '-', 
+      row.goal || '-' 
     ]);
   });
 
@@ -208,7 +210,7 @@ export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, target
   const counts = { '퍼플': Array(8).fill(0), '그린': Array(8).fill(0) };
   
   analyzedCurrent.forEach(r => {
-    if(r.status === 'blind') return; // 블라인드 제외
+    if(r.status === 'blind') return;
     const type = String(r.levelCat||'').includes('퍼플') ? '퍼플' : '그린';
     const lvl = String(r.level||'');
     let idx = lvl.includes('등록') ? 0 : (7 - (parseInt(lvl.replace(/[^0-9]/g, ''))||0));
@@ -229,20 +231,20 @@ export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, target
   XLSX.utils.book_append_sheet(wb, ws2, "단계별 상담사");
 
   // ------------------------------------------------------------------
-  // Sheet 3: 파트너, 블라인드, 신규 (GAS 로직 이식)
+  // Sheet 3: 파트너, 블라인드, 신규
   // ------------------------------------------------------------------
   const partnerRows = [];
-  let targetYM = 0;      // 비교용 숫자 (예: 2411)
-  let targetDateStr = ""; // 표시용 문자열 (예: "24.11")
+  let targetYM = 0;      
+  let targetDateStr = ""; 
 
   // 1. 최신 파트너 계약 월 찾기
   analyzedCurrent.forEach(row => {
     const memo = String(row.memo || "");
     const match = memo.match(/(\d{2}\.\d{2})월.*파트너/);
     if(match) {
-        const dateStr = match[1]; // "24.11"
+        const dateStr = match[1]; 
         const parts = dateStr.split('.');
-        const currentVal = parseInt(parts[0]) * 100 + parseInt(parts[1]); // 2411
+        const currentVal = parseInt(parts[0]) * 100 + parseInt(parts[1]); 
         if(currentVal > targetYM) {
             targetYM = currentVal;
             targetDateStr = dateStr;
@@ -255,18 +257,22 @@ export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, target
       analyzedCurrent.forEach(row => {
           const memo = String(row.memo || "");
           if(memo.includes(targetDateStr) && memo.includes('파트너')) {
-             const mySettle = getSettleAmount(row);
+             // [수정 완료] 기존 getNetPayAmount(row) 제거 -> row.curRev(전체정산금액) 사용
+             // 비율 적용 없이 순수 매출총액을 출력합니다.
+             const grossRevenue = row.curRev || 0; 
+
              partnerRows.push([
                  row.category, row.levelCat, row.level, row.nick, 
-                 '-', targetDateStr, formatTime(row.curTime), mySettle, ''
+                 '-', targetDateStr, formatTime(row.curTime), grossRevenue, ''
              ]);
           }
       });
   }
+  
+  // 데이터가 없을 경우 처리
   if(partnerRows.length > 0) partnerRows[0][8] = partnerRows.length+'명';
   else partnerRows.push(['', '', '', '', '', '대상 없음', '', '', '']);
 
-  // 3. 블라인드 & 신규
   const blindRows = analyzedCurrent.filter(r => r.status === 'blind').map((r, i) => [
       monthStr, r.category, r.levelCat, r.level, r.nick, '미활동', i===0 ? (analyzedCurrent.filter(x=>x.status==='blind').length+'명') : ''
   ]);
@@ -277,11 +283,9 @@ export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, target
   ]);
   if(newRows.length === 0) newRows.push(['', '', '', '', '', '대상 없음', '']);
 
-  // 시트 구성
   const ws3 = XLSX.utils.aoa_to_sheet([]);
-  let currRow = 1; // B2 (Index 1)
+  let currRow = 1;
 
-  // 파트너 섹션
   const pTitle = targetDateStr ? `■ 파트너 계약 상담사 (${targetDateStr}월 적용)` : `■ 파트너 계약 상담사`;
   XLSX.utils.sheet_add_aoa(ws3, [[pTitle]], {origin: {r: currRow++, c: 1}});
   XLSX.utils.sheet_add_aoa(ws3, [['분야', '등록단계', '단계', '활동명', '등록일', '계약일', '상담시간', '정산금액', 'TTL']], {origin: {r: currRow, c: 1}});
@@ -289,14 +293,12 @@ export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, target
   currRow++;
   XLSX.utils.sheet_add_aoa(ws3, partnerRows, {origin: {r: currRow, c: 1}});
   applyCellStyle(ws3, {s:{r:currRow, c:1}, e:{r:currRow + partnerRows.length - 1, c:9}}, 'body');
-  // 파트너 금액 서식
   for(let i=0; i<partnerRows.length; i++) {
-     const addr = XLSX.utils.encode_cell({r: currRow+i, c: 8}); // I열
-     if(ws3[addr]) ws3[addr].s = CURRENCY_STYLE;
+      const addr = XLSX.utils.encode_cell({r: currRow+i, c: 8}); 
+      if(ws3[addr]) ws3[addr].s = CURRENCY_STYLE;
   }
   currRow += partnerRows.length + 2;
 
-  // 블라인드 섹션
   XLSX.utils.sheet_add_aoa(ws3, [['■ 블라인드 상담사']], {origin: {r: currRow++, c: 1}});
   XLSX.utils.sheet_add_aoa(ws3, [['월', '분야', '단계', '단계', '활동명', '사유', 'TTL']], {origin: {r: currRow, c: 1}});
   applyCellStyle(ws3, {s:{r:currRow, c:1}, e:{r:currRow, c:7}}, 'greenHeader');
@@ -305,7 +307,6 @@ export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, target
   applyCellStyle(ws3, {s:{r:currRow, c:1}, e:{r:currRow + blindRows.length - 1, c:7}}, 'body');
   currRow += blindRows.length + 2;
 
-  // 신규 섹션
   XLSX.utils.sheet_add_aoa(ws3, [['■ 신규 상담사']], {origin: {r: currRow++, c: 1}});
   XLSX.utils.sheet_add_aoa(ws3, [['월', '분야', '등록단계', '단계', '활동명', '등록일', 'TTL']], {origin: {r: currRow, c: 1}});
   applyCellStyle(ws3, {s:{r:currRow, c:1}, e:{r:currRow, c:7}}, 'greenHeader');
@@ -331,7 +332,7 @@ export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, target
   const s4Data = analyzedCurrent.filter(r => r.status !== 'blind').map(r => {
     const replyRate = r.reviews > 0 ? ((r.answers / r.reviews) * 100).toFixed(1) + '%' : '0.0%';
     return [
-      '', // A열 공백
+      '', 
       monthStr,
       r.category,
       r.levelCat,
@@ -349,9 +350,9 @@ export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, target
       r.phoneSuccess || 0,
       r.phoneFail || 0,
       r.curMissed || 0,
-      formatTime(r.curTime),
-      r.curRev || 0,
-      getSettleAmount(r)
+      formatTime(r.curTime), // 접속시간 (R열)
+      formatTime(r.curTime), // [수정] 전체정산 = 시간 데이터 (S열)
+      r.curRev || 0          // [수정] 전체정산금액 = 비율 미적용 총 매출 (T열)
     ];
   });
 
@@ -360,22 +361,22 @@ export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, target
   applyCellStyle(ws4, {s:{r:1, c:1}, e:{r:1, c:20}}, 'greenHeader');
   applyCellStyle(ws4, {s:{r:2, c:1}, e:{r:1+s4Data.length, c:20}}, 'body');
 
-  // 금액 컬럼 서식 적용 (S열:19, T열:20)
+  // 서식 적용
+  // S열(19): 전체정산(시간) -> 일반 텍스트 혹은 시간 서식이지만 여기선 formatTime 문자열이므로 body 스타일 유지
+  // T열(20): 전체정산 금액 -> 화폐 서식
   for (let R = 2; R <= 1 + s4Data.length; ++R) {
-      const addrS = XLSX.utils.encode_cell({ r: R, c: 19 });
-      if (ws4[addrS]) ws4[addrS].s = CURRENCY_STYLE;
       const addrT = XLSX.utils.encode_cell({ r: R, c: 20 });
       if (ws4[addrT]) ws4[addrT].s = CURRENCY_STYLE;
   }
+  
   autoFitColumns(ws4, 1, 3);
   setZoom(ws4);
   XLSX.utils.book_append_sheet(wb, ws4, "전체매출");
 
   // ------------------------------------------------------------------
-  // Sheet 5: 기타 (복잡한 레이아웃 + COUNTIF)
+  // Sheet 5: 기타 (복잡한 레이아웃 + COUNTIF) - 기존 유지
   // ------------------------------------------------------------------
   const ws5 = XLSX.utils.aoa_to_sheet([]);
-  
   XLSX.utils.sheet_add_aoa(ws5, [['상담사 특이사항', '','','']], {origin: "B2"});
   XLSX.utils.sheet_add_aoa(ws5, [['섭외 건수', '','','']], {origin: "G2"});
   XLSX.utils.sheet_add_aoa(ws5, [['섭외 총 건수', '','']], {origin: "L2"});
@@ -437,7 +438,6 @@ export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, target
   // Sheet 6: 개인성과
   // ------------------------------------------------------------------
   const ws6 = XLSX.utils.aoa_to_sheet([]);
-  
   XLSX.utils.sheet_add_aoa(ws6, [['* 개인이 진행한 업무내용을 작성해주세요.']], {origin: "B2"});
   XLSX.utils.sheet_add_aoa(ws6, [['- 성과가 있는 업무는 성과여부 체크 후 성과내용 자세하게 작성']], {origin: "B3"});
   XLSX.utils.sheet_add_aoa(ws6, [['번호', '업무범위', '업무내용', '성과여부', '성과내용']], {origin: "B4"});
@@ -465,7 +465,7 @@ export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, target
   XLSX.utils.book_append_sheet(wb, ws6, "개인성과");
 
   // ------------------------------------------------------------------
-  // 다운로드
+  // 다운로드 실행
   // ------------------------------------------------------------------
   const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
   const blob = new Blob([wbout], { type: 'application/octet-stream' });

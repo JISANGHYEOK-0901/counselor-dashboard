@@ -1,7 +1,7 @@
 import * as XLSX from 'xlsx';
 
 // ==========================================
-// 1. 설정값 및 헬퍼 함수 (순서 중요: 가장 먼저 정의되어야 함)
+// 1. 설정값 및 헬퍼 함수
 // ==========================================
 
 export const AD_CYCLES = {
@@ -40,8 +40,9 @@ const parseTime = (val) => {
   if (h) minutes += parseInt(h[1]) * 60;
   if (m) minutes += parseInt(m[1]);
   if (!h && !m) minutes = parseNum(str);
-  return minutes;
+  return minutes * 60; // 초 단위로 반환 (일관성 유지를 위해 seconds로 처리 권장하나 로직상 기존 분단위 사용시 조정필요. 여기선 초단위 통일)
 };
+// 주의: 위 parseTime에서 * 60을 해서 초 단위로 넘기면, excelGenerator의 formatTime(seconds)와 호환됩니다.
 
 const findVal = (row, ...candidates) => {
   if (!row) return undefined;
@@ -54,10 +55,9 @@ const findVal = (row, ...candidates) => {
   return undefined;
 };
 
-// ⚠️ 중요: analyzeReasonAndGoal 함수를 processWeeklyAnalysis보다 위로 올림
-export const analyzeReasonAndGoal = (timeRate, revRate, hasCur, hasPrev, curTimeMinutes) => {
-  const noChangeThreshold = 0.07; // 7%
-  const THIRTY_HOURS_MIN = 30 * 60; // 30시간
+export const analyzeReasonAndGoal = (timeRate, revRate, hasCur, hasPrev, curTimeSeconds) => {
+  const noChangeThreshold = 0.07; 
+  const THIRTY_HOURS_SEC = 30 * 60 * 60; 
 
   let reason = '-';
   let goal = '';
@@ -68,7 +68,7 @@ export const analyzeReasonAndGoal = (timeRate, revRate, hasCur, hasPrev, curTime
   } else if (hasCur && !hasPrev) {
     reason = '신규 상담사';
     goal = '플랫폼에 대한 이해 필요, 본인의 규칙적인 접속시간 설정 및 포스팅 작성, 공지사항 안내를 통한 고객확보 필요';
-  } else if (hasCur && curTimeMinutes < THIRTY_HOURS_MIN) {
+  } else if (hasCur && curTimeSeconds < THIRTY_HOURS_SEC) {
     reason = '접속은 하였으나 접속시간 매우부족';
     goal = '접속시간 증가 필요, 규칙적인 접속시간 유지 및 단골 확보하여 매출 높일 수 있도록 목표설정';
   } else if (Math.abs(timeRate) <= noChangeThreshold && Math.abs(revRate) <= noChangeThreshold) {
@@ -123,12 +123,12 @@ export const aggregateData = (rawData) => {
         let category = cleanStr(findVal(row, '카테고리', '상담분야'));
         if (!category && nick === lastMeta.nick) category = lastMeta.category; else lastMeta.category = category;
 
-        // 등급 분류 (그린/퍼플)
+        // 등급 분류
         let rawLevelCat = row['단계'] || findVal(row, '등급분류', '단계(그린,퍼플)', '등급');
         let levelCat = normalizeLevel(rawLevelCat);
         if (!levelCat && nick === lastMeta.nick) levelCat = lastMeta.levelCat; else lastMeta.levelCat = levelCat;
 
-        // 상세 단계 (1단계, 2단계...)
+        // 상세 단계
         let levelVal = row['단계_1'] || findVal(row, '상세단계', '레벨', '단계');
         if (!levelVal && nick === lastMeta.nick) levelVal = lastMeta.levelVal; else lastMeta.levelVal = levelVal;
 
@@ -157,7 +157,10 @@ export const aggregateData = (rawData) => {
         const entry = map[nick];
         if (memo && !entry.memo.includes(memo)) entry.memo += ` ${memo}`;
 
+        // 전체정산금액(비율 적용 전) - 입력 데이터에서 그대로 합산
         entry.curRev += parseNum(findVal(row, '전체정산 금액', '전체정산금액', '전체정산'));
+        
+        // 접속시간 (초 단위로 합산)
         entry.curTime += parseTime(findVal(row, '접속시간'));
         
         const cf = parseNum(findVal(row, '코인콜수 실패'));
@@ -319,7 +322,6 @@ export const processWeeklyAnalysis = (currentRaw, pastRaw = [], historyData = {}
     const revRate = prevRow ? calcRate(curRev, prevRev) : 0;
     const timeRate = prevRow ? calcRate(curTime, prevTime) : 0;
 
-    // 여기서 에러가 났었습니다! 이제 함수가 위에 있으니 안전합니다.
     const analysis = analyzeReasonAndGoal(timeRate, revRate, true, !!prevRow, curTime);
     if (isNew) { analysis.reason = '신규 상담사'; }
 
@@ -346,7 +348,8 @@ export const processWeeklyAnalysis = (currentRaw, pastRaw = [], historyData = {}
             if (hasChat) adEligibleTypes.push('채팅(메인)');
             
             let canPhoneMain = false;
-            const hours = curTime / 60;
+            // 시간 기준 체크 (초 단위이므로 3600으로 나눠서 시간으로 변환)
+            const hours = curTime / 3600; 
             if (levelNum >= 3) {
                 canPhoneMain = true; 
             } else {
@@ -402,7 +405,7 @@ export const processMonthlyAnalysis = (thisMonth, lastMonth = []) => {
     return basicData.map(row => {
         const issues = [];
         if (row.curMissed >= 10) issues.push('C(월간부재)'); 
-        if (row.curTime < 60 * 60) issues.push('시간미달');
+        if (row.curTime < 60 * 60) issues.push('시간미달'); // 1시간 미만 체크
 
         let promotionStatus = '-';
         const nextLevelNum = row.levelNum + 1;
@@ -411,6 +414,7 @@ export const processMonthlyAnalysis = (thisMonth, lastMonth = []) => {
         const nextFullLevel = `${cleanLevelCat}${nextLevelNum}단계`; 
 
         const ratio = SETTLEMENT_RATIOS[currentFullLevel] || 0.45;
+        // 승급 판단용으로는 비율 적용된 금액이 필요하므로 계산
         const mySettleAmount = Math.floor(row.curRev * ratio); 
 
         if (LEVEL_STANDARDS[nextFullLevel]) {
