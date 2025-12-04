@@ -6,10 +6,8 @@ import React, { useState, useEffect } from 'react';
 // ==========================================
 const getCalculatedDates = () => {
   const today = new Date();
-  
   const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1);
   const reRegister = new Date(nextMonth.getFullYear(), nextMonth.getMonth() + 6, 1);
-  
   const formatFull = (d) => `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일`;
   const formatMonthDay = (d) => `${d.getMonth() + 1}월 ${d.getDate()}일`;
 
@@ -60,13 +58,10 @@ const SCRIPTS = {
 
 확인 후 작성 부탁드리며 계약서는 예명이 아닌 [[본명]]으로 작성 부탁드리며 주민번호는 [[13자리 전체]] 기입 부탁드리겠습니다!`,
 
-  // 기존 이슈 스크립트 (수정해주신 내용 반영)
   'C': (name) => `안녕하세요 선생님!\n이번 주 상담 내역 확인해보면 부재중 통화가 조금씩 있는데 고객분은 통화 안받으면 선생님한테 상담 안받으시고 다른분에게 넘어가니 꼭 상담 잘 받아주시고 상담 불가하시면 꼭 상담 OFF 해주세요!`,
   'D': (name) => `안녕하세요 선생님!\n후기 작성이 안되어 있으신데 고객 분들이 재방문 할 수 있는 요소 중 하나가 후기여서 시간나실때 꼭 작성 부탁드립니다!`,
   'A': (name) => `안녕하세요 선생님!\n이번 주 접속이 없으신데 자꾸 접속 없으시면 노출이 안되서 선생님이 다음에 오래 키신다고 하시더라도 인입이 없어지십니다. 접속 부탁드리며 고정 접속시간 확보하셔서 시간 정하셔서 접속 꼭 해주세요!`,
   'B': (name) => `안녕하세요 선생님!\n매출이 조금씩 떨어지고 있으신데 접속시간 조금 더 늘려보시고 원래 접속하시던 시간대보다 다른 시간대도 한번씩 접속해보시면서 상담 시간 늘려보세요!`,
-  
-  // 블라인드 관련
   'WARN': (name, dates) => `안녕하세요 선생님!\n\n이번 달 기준 접속 이력이 없거나\n정산시간이 5시간 미만일 경우\n\n${dates.nextMonthShort}부터 프로필이 블라인드 처리될 예정입니다.\n\n블라인드된 프로필은 다시 올려달라고 하셔도 복구되지 않으며,\n6개월 경과 후 상담사 재등록 신청이 가능합니다.\n\n안정적인 상담 연결과 신뢰도 유지를 위한 정책이오니,\n이 점 참고하시어 상담 활동에 참여 부탁드립니다.\n\n감사합니다.`,
   'BLIND': (name, dates) => `안녕하세요 선생님!\n\n선생님께서는 0단계 5시간 미달성으로 ${dates.nextMonthFull}부로 상담사 블라인드 처리가 완료되었음을 안내드립니다.\n\n재등록은 6개월 이후부터 가능하며 재등록을 원하실 경우 해당 시점에 고객센터로 문의 부탁드립니다.\n\n감사합니다.`
 };
@@ -79,32 +74,32 @@ export default function MessageModal({ isOpen, onClose, counselor }) {
   const [text, setText] = useState('');
   const dates = getCalculatedDates();
 
-  // 탭 자동 선택 로직
+  // 탭 자동 선택 로직 (우선순위 재조정)
   useEffect(() => {
     if (isOpen && counselor) {
       const issues = counselor.issues || []; 
       const status = counselor.status;
       const curTime = counselor.curTime || 0; 
 
-      // 1순위: 신규 상담사 (NEW)
+      // 1순위: 신규
       if (status === 'new') {
         setActiveTab('NEW');
       }
-      // 2순위: 블라인드 (BLIND)
+      // 2순위: 이미 블라인드 상태
       else if (status === 'blind') {
         setActiveTab('BLIND');
       }
-      // 3순위: 경고 (WARN) - 5시간 미만
-      else if (curTime < 5 * 3600) {
-        setActiveTab('WARN');
-      }
-      // 4순위: 이슈 코드
+      // 3순위: 이슈 코드 (사용자 요청: 이슈가 있으면 이슈 탭이 먼저 보이게)
       else if (issues.some(i => i.startsWith('C'))) setActiveTab('C');
       else if (issues.some(i => i.startsWith('D'))) setActiveTab('D');
       else if (issues.some(i => i.startsWith('A'))) setActiveTab('A');
       else if (issues.some(i => i.startsWith('B'))) setActiveTab('B');
+      // 4순위: 시간 부족 경고 (이슈가 없을 때만, 혹은 최후순위)
+      else if (curTime < 5 * 3600) {
+        setActiveTab('WARN');
+      }
       else {
-        setActiveTab('A');
+        setActiveTab('A'); // 기본값
       }
     }
   }, [isOpen, counselor]);
@@ -113,8 +108,6 @@ export default function MessageModal({ isOpen, onClose, counselor }) {
   useEffect(() => {
     if (counselor && SCRIPTS[activeTab]) {
       const displayName = counselor.realName || counselor.nick; 
-      // 신규, 경고, 블라인드는 날짜 정보 등이 필요 없거나(신규), 필요하거나(경고) 함
-      // SCRIPTS 함수 인자에 맞춰 호출
       if (activeTab === 'WARN' || activeTab === 'BLIND') {
         setText(SCRIPTS[activeTab](displayName, dates));
       } else {
@@ -131,9 +124,7 @@ export default function MessageModal({ isOpen, onClose, counselor }) {
 
   if (!isOpen || !counselor) return null;
 
-  // ---------------------------------------------
-  // 스타일 변수 분리 (Vite 에러 방지)
-  // ---------------------------------------------
+  // 스타일 정의
   const getTabStyle = (tabKey) => {
     const isActive = activeTab === tabKey;
     const hasIssue = counselor.issues?.some(i => i.startsWith(tabKey));
@@ -156,7 +147,6 @@ export default function MessageModal({ isOpen, onClose, counselor }) {
     ? 'px-3 py-1.5 rounded-full text-sm font-medium border bg-red-600 text-white border-red-600'
     : 'px-3 py-1.5 rounded-full text-sm font-medium border text-red-600 border-red-200 bg-red-50 hover:bg-red-100';
 
-  // [NEW] 신규 버튼 스타일
   const newStyle = activeTab === 'NEW'
     ? 'px-3 py-1.5 rounded-full text-sm font-medium border bg-teal-500 text-white border-teal-500'
     : 'px-3 py-1.5 rounded-full text-sm font-medium border text-teal-600 border-teal-200 bg-teal-50 hover:bg-teal-100';
@@ -168,35 +158,24 @@ export default function MessageModal({ isOpen, onClose, counselor }) {
         <div className="flex justify-between items-center mb-4 border-b pb-3">
           <div>
             <span className="text-gray-500 text-sm">To.</span>
-            <h2 className="text-xl font-bold text-gray-800">
-              {counselor.nick} <span className="text-sm font-normal text-gray-500">({counselor.realName})</span>
+            <h2 className="text-lg font-bold text-gray-800">
+              {/* [수정] 타로_실명_활동명, 전화번호 형식으로 변경 */}
+              {counselor.category}_{counselor.realName}_{counselor.nick}
             </h2>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
         </div>
 
         <div className="flex flex-wrap gap-2 mb-4">
-          {/* 신규 탭 (New) */}
-          <button onClick={() => setActiveTab('NEW')} className={newStyle}>
-             🐣 신규
-          </button>
-
+          <button onClick={() => setActiveTab('NEW')} className={newStyle}>🐣 신규</button>
           <div className="w-px h-6 bg-gray-300 mx-1 self-center"></div>
-
           <button onClick={() => setActiveTab('C')} className={getTabStyle('C')}>📞 부재중</button>
           <button onClick={() => setActiveTab('D')} className={getTabStyle('D')}>✍️ 후기</button>
           <button onClick={() => setActiveTab('A')} className={getTabStyle('A')}>⏰ 접속</button>
           <button onClick={() => setActiveTab('B')} className={getTabStyle('B')}>📉 매출</button>
-          
           <div className="w-px h-6 bg-gray-300 mx-1 self-center"></div>
-          
-          <button onClick={() => setActiveTab('WARN')} className={warnStyle}>
-            ⚠️ 경고
-          </button>
-          
-          <button onClick={() => setActiveTab('BLIND')} className={blindStyle}>
-            🚫 안내
-          </button>
+          <button onClick={() => setActiveTab('WARN')} className={warnStyle}>⚠️ 경고</button>
+          <button onClick={() => setActiveTab('BLIND')} className={blindStyle}>🚫 안내</button>
         </div>
 
         <div className="relative">
@@ -205,22 +184,12 @@ export default function MessageModal({ isOpen, onClose, counselor }) {
             value={text}
             onChange={(e) => setText(e.target.value)}
           />
-          <div className="absolute bottom-4 right-4 text-xs text-gray-400">
-             * 내용은 수정 가능합니다.
-          </div>
+          <div className="absolute bottom-4 right-4 text-xs text-gray-400">* 내용은 수정 가능합니다.</div>
         </div>
 
         <div className="flex gap-3 mt-6">
-          <button 
-            onClick={onClose}
-            className="flex-1 py-3 px-4 bg-gray-100 text-gray-600 rounded-lg font-bold hover:bg-gray-200 transition-colors"
-          >
-            취소
-          </button>
-          <button 
-            onClick={copyToClipboard}
-            className="flex-1 py-3 px-4 bg-purple-600 text-white rounded-lg font-bold hover:bg-purple-700 shadow-lg transition-colors flex justify-center items-center gap-2"
-          >
+          <button onClick={onClose} className="flex-1 py-3 px-4 bg-gray-100 text-gray-600 rounded-lg font-bold hover:bg-gray-200 transition-colors">취소</button>
+          <button onClick={copyToClipboard} className="flex-1 py-3 px-4 bg-purple-600 text-white rounded-lg font-bold hover:bg-purple-700 shadow-lg transition-colors flex justify-center items-center gap-2">
             <span>복사하기</span>
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" /></svg>
           </button>
