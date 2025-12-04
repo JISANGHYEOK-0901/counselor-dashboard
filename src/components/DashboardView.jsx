@@ -1,8 +1,9 @@
 // src/components/DashboardView.jsx
-import React, { useState, useMemo } from 'react'; // 👈 useMemo 추가 확인!
-import { Maximize2, X, Sparkles, Search, RotateCcw } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { Maximize2, X, Sparkles, Search, RotateCcw, MessageCircle } from 'lucide-react'; // [NEW] 아이콘 추가
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { getFilterCondition } from '../utils/aiSearch';
+import MessageModal from './MessageModal'; // [NEW] 모달 컴포넌트 임포트 (경로 확인해주세요)
 
 const ISSUE_LABELS = { 'A': 'A 접속시간', 'B': 'B 정산금액', 'C': 'C 부재중', 'D': 'D 후기', 'C(월간부재)': 'C 월간부재', '시간미달': '시간미달' };
 
@@ -34,6 +35,16 @@ const DashboardView = ({ data, memo, setMemo, isMonthly }) => {
   const [isSearching, setIsSearching] = useState(false);
   const [filterCode, setFilterCode] = useState(null);
 
+  // [NEW] 메시지 모달 상태 관리
+  const [isMsgModalOpen, setIsMsgModalOpen] = useState(false);
+  const [selectedMsgCounselor, setSelectedMsgCounselor] = useState(null);
+
+  // [NEW] 메시지 모달 열기 핸들러
+  const handleOpenMsg = (row) => {
+    setSelectedMsgCounselor(row);
+    setIsMsgModalOpen(true);
+  };
+
   const renderDelta = (val, type) => {
     if (!val || val === 0) return null;
     const isPos = val > 0;
@@ -44,8 +55,6 @@ const DashboardView = ({ data, memo, setMemo, isMonthly }) => {
     return <div className={`text-xs ${color}`}>{text}</div>;
   };
 
-  
-  // 🔴 중요 수정 1: useMemo로 감싸서 메모 입력 시 재계산 방지
   const filteredData = useMemo(() => {
       let result = [...data];
       if (filterCode) {
@@ -57,16 +66,15 @@ const DashboardView = ({ data, memo, setMemo, isMonthly }) => {
         }
       }
       return result;
-  }, [data, filterCode]); // data나 filterCode가 바뀔 때만 재계산! (memo 변경 시에는 실행 안 됨)
+  }, [data, filterCode]);
 
-  // 🔴 중요 수정 2: useMemo로 정렬 로직도 최적화
   const sortedData = useMemo(() => {
       return [...filteredData].sort((a, b) => {
           const valA = chartType === 'revenue' ? a.curRev : a.curTime;
           const valB = chartType === 'revenue' ? b.curRev : b.curTime;
           return valB - valA;
       });
-  }, [filteredData, chartType]); // 필터 결과나 차트 타입이 바뀔 때만 재계산!
+  }, [filteredData, chartType]);
 
   const top10Data = useMemo(() => sortedData.slice(0, 10), [sortedData]);
 
@@ -89,6 +97,7 @@ const DashboardView = ({ data, memo, setMemo, isMonthly }) => {
 
   return (
     <div>
+      {/* 검색 영역 */}
       <div className="mb-6 bg-indigo-50 p-4 rounded-xl border border-indigo-100 flex items-center gap-3 shadow-sm">
         <div className="bg-white p-2 rounded-full text-indigo-600 shadow-sm">
             <Sparkles size={20} />
@@ -124,6 +133,7 @@ const DashboardView = ({ data, memo, setMemo, isMonthly }) => {
         </div>
       </div>
 
+      {/* 차트 영역 */}
       <div className="mb-8 p-4 border rounded-xl bg-white shadow-sm">
         <div className="flex justify-between items-center mb-4">
             <div className="flex gap-2 bg-gray-100 p-1 rounded-lg">
@@ -142,6 +152,7 @@ const DashboardView = ({ data, memo, setMemo, isMonthly }) => {
         </div>
       </div>
 
+      {/* 차트 전체보기 모달 */}
       {showModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-10">
               <div className="bg-white rounded-xl w-full h-full max-w-7xl p-6 flex flex-col shadow-2xl">
@@ -161,7 +172,8 @@ const DashboardView = ({ data, memo, setMemo, isMonthly }) => {
           </div>
       )}
 
-      <div className="overflow-x-auto">
+      {/* 테이블 영역 */}
+     <div className="overflow-x-auto">
         <table className="w-full text-sm text-center whitespace-nowrap border-collapse table-fixed">
           <thead className="bg-gray-100 text-gray-700 font-bold uppercase sticky top-0 z-10 shadow-sm">
             <tr>
@@ -175,8 +187,13 @@ const DashboardView = ({ data, memo, setMemo, isMonthly }) => {
               <th className="p-3 bg-blue-50 w-24">상담료증감률</th>
               <th className="p-3 w-24">미작성후기</th>
               <th className="p-3 w-20">부재중</th>
+              
+              {/* ▼▼▼ 순서 변경: 이슈/비고 -> 관리 -> 메모 ▼▼▼ */}
               <th className="p-3 text-left w-80">이슈/비고</th>
+              <th className="p-3 w-24">관리</th> {/* 관리 컬럼 (중간 위치) */}
               <th className="p-3 min-w-[350px]">메모</th>
+              {/* ▲▲▲ 순서 변경 끝 ▲▲▲ */}
+              
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200 bg-white">
@@ -200,19 +217,46 @@ const DashboardView = ({ data, memo, setMemo, isMonthly }) => {
                     <td className={`p-3 ${revColor}`}>{fmtRate(row.revRate * 100)}</td>
                     <td className={`p-3 font-bold ${row.unanswered > 0 ? 'text-red-600' : 'text-gray-400'}`}>{row.unanswered}</td>
                     <td className="p-3">{row.curMissed}</td>
+                    
+                    {/* ▼▼▼ 1. 이슈/비고 컬럼 ▼▼▼ */}
                     <td className="p-3 text-left">
                       <div className="flex flex-col gap-1 items-start">
                         {row.remarks!=='-' && <span className="text-gray-600 bg-white border px-2 py-0.5 rounded text-xs font-medium">{row.remarks}</span>}
                         {row.issues.map(code => <span key={code} className="px-2 py-0.5 rounded text-xs font-bold border flex items-center gap-1 bg-yellow-50 text-yellow-700 border-yellow-200">{ISSUE_LABELS[code] || code}</span>)}
                       </div>
                     </td>
-                    <td className="p-3"><input className="border rounded px-2 py-1.5 w-full bg-white text-sm" value={memo[row.nick]||''} onChange={e=>setMemo({...memo,[row.nick]:e.target.value})} /></td>
+                    
+                    {/* ▼▼▼ 2. 관리(버튼) 컬럼 (가운데 배치) ▼▼▼ */}
+                    <td className="p-3">
+                        <button
+                          onClick={() => handleOpenMsg(row)}
+                          className={`px-3 py-1.5 rounded text-xs font-bold transition-all border flex items-center justify-center gap-1 w-full
+                            ${(row.issues && row.issues.length > 0) || row.status === 'blind'
+                              ? 'bg-purple-100 text-purple-700 border-purple-200 hover:bg-purple-200 hover:shadow-sm' 
+                              : 'bg-white text-gray-400 border-gray-200 hover:bg-gray-50'}
+                          `}
+                        >
+                          <MessageCircle size={14} />
+                          {(row.issues && row.issues.length > 0) || row.status === 'blind' ? '생성' : '메시지'}
+                        </button>
+                    </td>
+
+                    {/* ▼▼▼ 3. 메모 컬럼 ▼▼▼ */}
+                    <td className="p-3">
+                      <input 
+                        className="border rounded px-2 py-1.5 w-full bg-white text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-shadow" 
+                        placeholder="특이사항 입력"
+                        value={memo[row.nick]||''} 
+                        onChange={e=>setMemo({...memo,[row.nick]:e.target.value})} 
+                      />
+                    </td>
                   </tr>
               );
             })}
+            {/* 데이터 없을 때 표시 (Colspan 수정: 13칸) */}
             {filteredData.length === 0 && (
                 <tr>
-                    <td colSpan="12" className="p-10 text-gray-400">
+                    <td colSpan="13" className="p-10 text-gray-400">
                         검색 조건에 맞는 상담사가 없습니다.
                     </td>
                 </tr>
@@ -220,6 +264,15 @@ const DashboardView = ({ data, memo, setMemo, isMonthly }) => {
           </tbody>
         </table>
       </div>
+
+      
+
+      {/* [NEW] 메시지 모달 (최하단에 배치) */}
+      <MessageModal 
+        isOpen={isMsgModalOpen} 
+        onClose={() => setIsMsgModalOpen(false)} 
+        counselor={selectedMsgCounselor} 
+      />
     </div>
   );
 };
