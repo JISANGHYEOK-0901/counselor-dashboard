@@ -1,6 +1,6 @@
 // src/components/DashboardView.jsx
 import React, { useState, useMemo } from 'react';
-import { Maximize2, X, Sparkles, Search, RotateCcw, MessageCircle, Settings, Save } from 'lucide-react'; // Settings, Save 아이콘 추가
+import { Maximize2, X, Sparkles, Search, RotateCcw, MessageCircle, Settings, Save } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { getFilterCondition } from '../utils/aiSearch';
 import MessageModal from './MessageModal';
@@ -8,7 +8,15 @@ import MessageModal from './MessageModal';
 const ISSUE_LABELS = { 'A': 'A 접속시간', 'B': 'B 정산금액', 'C': 'C 부재중', 'D': 'D 후기', 'C(월간부재)': 'C 월간부재', '시간미달': '시간미달' };
 
 const fmt = (n) => (n || 0).toLocaleString();
-const fmtTime = (m) => `${Math.floor(m/60)}시간 ${m%60}분`;
+
+// [수정 1] 시간을 초(Seconds) 기준으로 포맷팅 (초 -> 00시간 00분)
+const fmtTime = (s) => {
+  if (!s) return '0시간 0분';
+  const h = Math.floor(s / 3600); // 3600초 = 1시간
+  const m = Math.floor((s % 3600) / 60); // 나머지 초를 분으로
+  return `${h}시간 ${m}분`;
+};
+
 const fmtRate = (n) => (n || 0).toFixed(1) + '%';
 
 const ChartComponent = ({ dataset, chartType, isMonthly, height=300 }) => (
@@ -16,7 +24,8 @@ const ChartComponent = ({ dataset, chartType, isMonthly, height=300 }) => (
       <BarChart data={dataset} margin={{top:20, right:30, left:20, bottom:5}}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} />
           <XAxis dataKey="nick" tick={{fontSize:14}} interval={0} />
-          <YAxis tickFormatter={(val) => chartType==='revenue' ? `${val/10000}만` : `${Math.floor(val/60)}시간`} tick={{fontSize:12}} />
+          {/* [수정 2] 차트 Y축: 초 -> 시간 (나누기 3600) */}
+          <YAxis tickFormatter={(val) => chartType==='revenue' ? `${val/10000}만` : `${Math.floor(val/3600)}시간`} tick={{fontSize:12}} />
           <Tooltip 
               formatter={(val, name) => [chartType==='revenue' ? fmt(val)+'원' : fmtTime(val), name]}
               labelStyle={{color:'black', fontSize: '14px'}}
@@ -35,17 +44,14 @@ const DashboardView = ({ data, memo, setMemo, isMonthly }) => {
   const [isSearching, setIsSearching] = useState(false);
   const [filterCode, setFilterCode] = useState(null);
 
-  // [NEW] 설정 관련 상태
   const [showSettings, setShowSettings] = useState(false);
- // [수정] 설정 상태 초기값 변경
   const [thresholds, setThresholds] = useState({
-    missed: 10,     // C: 부재중 건수
-    unanswered: 5,  // D: 미답변 후기 건수
-    minTime: 30,    // [변경] A: 최소 접속시간 (시간 단위, 예: 30시간 미만이면 이슈)
-    revDrop: 10     // B: 매출 하락 (%)
+    missed: 10,     
+    unanswered: 5,  
+    minTime: 30,    // 기본 30시간
+    revDrop: 10     
   });
 
-  // [NEW] 메시지 모달
   const [isMsgModalOpen, setIsMsgModalOpen] = useState(false);
   const [selectedMsgCounselor, setSelectedMsgCounselor] = useState(null);
 
@@ -64,10 +70,8 @@ const DashboardView = ({ data, memo, setMemo, isMonthly }) => {
     return <div className={`text-xs ${color}`}>{text}</div>;
   };
 
-// [수정] 설정값에 따라 데이터의 'issues'를 실시간 재계산
   const recalculatedData = useMemo(() => {
     return data.map(row => {
-      // [추가] 블라인드 상담사는 이슈(A,B,C,D) 표기 제외
       if (row.status === 'blind') {
         return { ...row, issues: [] };
       }
@@ -75,21 +79,16 @@ const DashboardView = ({ data, memo, setMemo, isMonthly }) => {
       const newIssues = [];
       const { missed, unanswered, minTime, revDrop } = thresholds;
 
-      // C: 부재중
       if (row.curMissed >= missed) newIssues.push('C');
-      
-      // D: 후기 미답변
       if (row.unanswered >= unanswered) newIssues.push('D');
 
-      // A: 접속시간 미달 (분 단위 -> 시간 환산)
-      const curTimeHour = row.curTime / 60; 
+      // [수정 3] 이슈 계산: 초 -> 시간 (나누기 3600)
+      const curTimeHour = row.curTime / 3600; 
       
-      // 신규가 아니고, 설정한 시간(minTime) 미만이면 이슈 A 발생
       if (row.status !== 'new' && curTimeHour < minTime) {
         newIssues.push('A');
       }
 
-      // B: 매출 하락 (revDrop% 이상 감소)
       const prevRev = row.prevRev || 0;
       const curRev = row.curRev || 0;
       if (row.status !== 'new' && prevRev > 0 && ((prevRev - curRev) / prevRev >= (revDrop / 100))) newIssues.push('B');
@@ -99,7 +98,7 @@ const DashboardView = ({ data, memo, setMemo, isMonthly }) => {
   }, [data, thresholds]);
 
   const filteredData = useMemo(() => {
-      let result = [...recalculatedData]; // [변경] 재계산된 데이터를 사용
+      let result = [...recalculatedData];
       if (filterCode) {
         try {
             const filterFn = new Function('item', `return ${filterCode}`);
@@ -138,7 +137,6 @@ const DashboardView = ({ data, memo, setMemo, isMonthly }) => {
       if (e.key === 'Enter') handleAiSearch();
   }
 
-  // [NEW] 설정 입력 핸들러
   const handleSettingChange = (key, val) => {
     setThresholds(prev => ({ ...prev, [key]: Number(val) }));
   };
@@ -178,7 +176,6 @@ const DashboardView = ({ data, memo, setMemo, isMonthly }) => {
                     </button>
                 )}
                 
-                {/* [NEW] 설정 버튼 */}
                 <button 
                   onClick={() => setShowSettings(true)}
                   className="bg-white text-gray-600 border border-gray-300 px-3 rounded-lg hover:bg-gray-50 transition flex items-center gap-1 font-bold"
@@ -190,7 +187,7 @@ const DashboardView = ({ data, memo, setMemo, isMonthly }) => {
         </div>
       </div>
 
-      {/* [NEW] 설정 모달 (간단하게 인라인 렌더링) */}
+      {/* 설정 모달 */}
       {showSettings && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-6 w-96 shadow-2xl animate-fade-in-up">
@@ -207,16 +204,10 @@ const DashboardView = ({ data, memo, setMemo, isMonthly }) => {
                 <label className="block text-sm font-bold text-gray-700 mb-1">✍️ D: 미답변 후기 (건수 이상)</label>
                 <input type="number" className="w-full border p-2 rounded" value={thresholds.unanswered} onChange={(e)=>handleSettingChange('unanswered', e.target.value)} />
               </div>
-{/* [수정] 설정 모달 내부 input 영역 중 A 항목 */}
               <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1">⏰ A: 최소 접속시간 미달 기준 (시간)</label>
-                <input 
-                  type="number" 
-                  className="w-full border p-2 rounded" 
-                  value={thresholds.minTime} 
-                  onChange={(e)=>handleSettingChange('minTime', e.target.value)} 
-                  placeholder="예: 30 (30시간 미만시 표시)"
-                />
+                <label className="block text-sm font-bold text-gray-700 mb-1">⏰ A: 최소 접속시간 (시간 미만)</label>
+                <input type="number" className="w-full border p-2 rounded" value={thresholds.minTime} onChange={(e)=>handleSettingChange('minTime', e.target.value)} />
+                <p className="text-xs text-gray-400 mt-1">예: 30 입력 시, 30시간 미만 접속자에게 이슈 표시</p>
               </div>
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-1">📉 B: 매출 하락 (% 이상)</label>
@@ -285,12 +276,9 @@ const DashboardView = ({ data, memo, setMemo, isMonthly }) => {
               <th className="p-3 bg-blue-50 w-24">상담료증감률</th>
               <th className="p-3 w-24">미작성후기</th>
               <th className="p-3 w-20">부재중</th>
-              
-              {/* 순서 변경 적용됨 */}
               <th className="p-3 text-left w-80">이슈/비고</th>
               <th className="p-3 w-24">관리</th> 
               <th className="p-3 min-w-[350px]">메모</th>
-              
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200 bg-white">
