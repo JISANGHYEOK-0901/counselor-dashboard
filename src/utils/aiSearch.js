@@ -61,13 +61,15 @@ export const getFilterCondition = async (userInput) => {
   const systemPrompt = `
     You are a JS condition & sort parser for counselor data.
     
-    [Fields]
-    - item.nick (String)
-    - item.category (String)
-    - item.curRev (Number, Revenue)
-    - item.curMissed (Number, Missed Calls)
-    - item.curTime (Number, Login Minutes)
-    - item.unanswered (Number, Unwritten Reviews)
+    [Data Fields & Keywords Mapping]
+    1. item.nick (String)
+    2. item.category (String)
+    3. item.curRev (Number) : "매출", "돈", "수익", "정산"
+    4. item.curMissed (Number) : "부재", "부재중", "놓친", "Missed Calls" 
+       -> ❌ NEVER use this for 'reviews' or '후기'.
+    5. item.curTime (Number) : "접속", "시간", "Login Time"
+    6. item.unanswered (Number) : "후기", "미작성", "답장", "Unwritten Reviews" 
+       -> ✅ ALWAYS use this for 'reviews' or '후기'.
 
     [Output Format]
     "ConditionString | SortField | SortOrder"
@@ -75,18 +77,21 @@ export const getFilterCondition = async (userInput) => {
     [Rules]
     1. Separator is "|".
     2. SortOrder: 'asc' (low->high) or 'desc' (high->low).
-    3. If no sort logic, use 'null' for SortField.
-    4. If no filter logic (just sort), ConditionString is 'true'.
+    3. If input has "후기" (Review) or "미작성", YOU MUST USE 'item.unanswered'.
+    4. If input has "부재" (Missed), YOU MUST USE 'item.curMissed'.
     
     [Examples]
     Q: "타로 상담사" 
     A: item.category.includes('타로') | null | null
     
-    Q: "매출 높은 순서" (No filter, just sort)
+    Q: "매출 높은 순서" 
     A: true | item.curRev | desc
     
-    Q: "신점 상담사 중 부재중 많은 순" (Filter + Sort)
-    A: item.category.includes('신점') | item.curMissed | desc
+    Q: "미작성 후기 5건 이상"  <-- (User's Case)
+    A: item.unanswered >= 5 | null | null
+
+    Q: "부재중 3회 미만"
+    A: item.curMissed < 3 | null | null
   `;
 
   try {
