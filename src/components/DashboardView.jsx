@@ -1,30 +1,37 @@
-// src/components/DashboardView.jsx
 import React, { useState, useMemo } from 'react';
 import { Maximize2, X, Sparkles, Search, RotateCcw, MessageCircle, Settings, Save } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { getFilterCondition } from '../utils/aiSearch';
+import { getFilterCondition } from '../utils/aiSearch'; // aiSearch 경로 확인 필요
 import MessageModal from './MessageModal';
 
-const ISSUE_LABELS = { 'A': 'A 접속시간', 'B': 'B 정산금액', 'C': 'C 부재중', 'D': 'D 후기', 'C(월간부재)': 'C 월간부재', '시간미달': '시간미달' };
+// --- 상수 및 헬퍼 함수 ---
+const ISSUE_LABELS = { 
+  'A': 'A 접속시간', 
+  'B': 'B 정산금액', 
+  'C': 'C 부재중', 
+  'D': 'D 후기', 
+  'C(월간부재)': 'C 월간부재', 
+  '시간미달': '시간미달' 
+};
 
 const fmt = (n) => (n || 0).toLocaleString();
 
-// [수정 1] 시간을 초(Seconds) 기준으로 포맷팅 (초 -> 00시간 00분)
+// 시간을 초(Seconds) 기준으로 포맷팅 (초 -> 00시간 00분)
 const fmtTime = (s) => {
   if (!s) return '0시간 0분';
-  const h = Math.floor(s / 3600); // 3600초 = 1시간
-  const m = Math.floor((s % 3600) / 60); // 나머지 초를 분으로
+  const h = Math.floor(s / 3600); 
+  const m = Math.floor((s % 3600) / 60); 
   return `${h}시간 ${m}분`;
 };
 
 const fmtRate = (n) => (n || 0).toFixed(1) + '%';
 
+// --- 차트 컴포넌트 ---
 const ChartComponent = ({ dataset, chartType, isMonthly, height=300 }) => (
     <ResponsiveContainer width="100%" height={height}>
       <BarChart data={dataset} margin={{top:20, right:30, left:20, bottom:5}}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} />
           <XAxis dataKey="nick" tick={{fontSize:14}} interval={0} />
-          {/* [수정 2] 차트 Y축: 초 -> 시간 (나누기 3600) */}
           <YAxis tickFormatter={(val) => chartType==='revenue' ? `${val/10000}만` : `${Math.floor(val/3600)}시간`} tick={{fontSize:12}} />
           <Tooltip 
               formatter={(val, name) => [chartType==='revenue' ? fmt(val)+'원' : fmtTime(val), name]}
@@ -37,14 +44,24 @@ const ChartComponent = ({ dataset, chartType, isMonthly, height=300 }) => (
     </ResponsiveContainer>
 );
 
+// --- 메인 대시보드 컴포넌트 ---
 const DashboardView = ({ data, memo, setMemo, isMonthly }) => {
+  // UI 상태
   const [chartType, setChartType] = useState('revenue');
   const [showModal, setShowModal] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [isMsgModalOpen, setIsMsgModalOpen] = useState(false);
+  const [selectedMsgCounselor, setSelectedMsgCounselor] = useState(null);
+
+  // 검색 및 AI 상태
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
+  
+  // [중요] AI가 분석한 필터 코드와 정렬 설정을 저장하는 상태
   const [filterCode, setFilterCode] = useState(null);
+  const [aiSortConfig, setAiSortConfig] = useState(null); // { key: 'curRev', order: 'desc' }
 
-  const [showSettings, setShowSettings] = useState(false);
+  // 이슈 기준 설정 상태
   const [thresholds, setThresholds] = useState({
     missed: 10,     
     unanswered: 5,  
@@ -52,12 +69,15 @@ const DashboardView = ({ data, memo, setMemo, isMonthly }) => {
     revDrop: 10     
   });
 
-  const [isMsgModalOpen, setIsMsgModalOpen] = useState(false);
-  const [selectedMsgCounselor, setSelectedMsgCounselor] = useState(null);
+  // --- 이벤트 핸들러 ---
 
   const handleOpenMsg = (row) => {
     setSelectedMsgCounselor(row);
     setIsMsgModalOpen(true);
+  };
+
+  const handleSettingChange = (key, val) => {
+    setThresholds(prev => ({ ...prev, [key]: Number(val) }));
   };
 
   const renderDelta = (val, type) => {
@@ -70,6 +90,56 @@ const DashboardView = ({ data, memo, setMemo, isMonthly }) => {
     return <div className={`text-xs ${color}`}>{text}</div>;
   };
 
+  // --- AI 검색 핸들러 (수정됨) ---
+  const handleAiSearch = async (userInput = searchQuery) => {
+    if (!userInput.trim()) return;
+    
+    setIsSearching(true);
+    try {
+        // 1. AI에게 자연어를 코드로 변환 요청
+        // 반환값 예시: { filterCode: "item.curRev >= 100", sortField: "item.curRev", sortOrder: "desc" }
+        const result = await getFilterCondition(userInput);
+
+        // 2. 필터 코드 적용
+        setFilterCode(result.filterCode);
+
+        // 3. 정렬 설정 적용
+        if (result.sortField && result.sortField !== 'null') {
+            // "item.curRev" -> "curRev" 로 키 값만 추출
+            const cleanKey = result.sortField.replace('item.', '');
+            setAiSortConfig({
+                key: cleanKey,
+                order: result.sortOrder || 'desc'
+            });
+        } else {
+            // 정렬 조건이 없으면 null (기본 차트 정렬 사용)
+            setAiSortConfig(null);
+        }
+
+    } catch (error) {
+        console.error("AI Search Error:", error);
+        alert("검색 중 오류가 발생했습니다.");
+    } finally {
+        setIsSearching(false);
+    }
+  };
+
+  const resetSearch = () => {
+      setSearchQuery('');
+      setFilterCode(null);
+      setAiSortConfig(null);
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+      e.preventDefault();
+      handleAiSearch(e.target.value);
+    }
+  };
+
+  // --- 데이터 처리 파이프라인 (useMemo) ---
+
+  // 1. 원본 데이터에 이슈(A,B,C,D) 태그 계산
   const recalculatedData = useMemo(() => {
     return data.map(row => {
       if (row.status === 'blind') {
@@ -82,9 +152,7 @@ const DashboardView = ({ data, memo, setMemo, isMonthly }) => {
       if (row.curMissed >= missed) newIssues.push('C');
       if (row.unanswered >= unanswered) newIssues.push('D');
 
-      // [수정 3] 이슈 계산: 초 -> 시간 (나누기 3600)
       const curTimeHour = row.curTime / 3600; 
-      
       if (row.status !== 'new' && curTimeHour < minTime) {
         newIssues.push('A');
       }
@@ -97,9 +165,12 @@ const DashboardView = ({ data, memo, setMemo, isMonthly }) => {
     });
   }, [data, thresholds]);
 
+  // 2. 필터링 및 정렬 적용 (핵심 로직)
   const filteredData = useMemo(() => {
       let result = [...recalculatedData];
-      if (filterCode) {
+
+      // (A) 필터링 수행
+      if (filterCode && filterCode !== 'true') {
         try {
             const filterFn = new Function('item', `return ${filterCode}`);
             result = result.filter(item => filterFn(item));
@@ -107,47 +178,41 @@ const DashboardView = ({ data, memo, setMemo, isMonthly }) => {
             console.error("Filter Execution Error:", e);
         }
       }
-      return result;
-  }, [recalculatedData, filterCode]);
 
-  const sortedData = useMemo(() => {
-      return [...filteredData].sort((a, b) => {
-          const valA = chartType === 'revenue' ? a.curRev : a.curTime;
-          const valB = chartType === 'revenue' ? b.curRev : b.curTime;
-          return valB - valA;
+      // (B) 정렬 수행
+      // AI 정렬 조건이 있으면 최우선, 없으면 차트 타입(매출/시간) 기준 정렬
+      result.sort((a, b) => {
+          let valA, valB;
+          let order = 'desc';
+
+          if (aiSortConfig) {
+              // AI가 지정한 정렬 (예: 부재중 횟수, 미작성 후기 등)
+              valA = a[aiSortConfig.key] || 0;
+              valB = b[aiSortConfig.key] || 0;
+              order = aiSortConfig.order;
+          } else {
+              // 기본 정렬 (차트 탭에 따라)
+              valA = chartType === 'revenue' ? a.curRev : a.curTime;
+              valB = chartType === 'revenue' ? b.curRev : b.curTime;
+          }
+
+          if (order === 'asc') {
+              return valA - valB;
+          } else {
+              return valB - valA;
+          }
       });
-  }, [filteredData, chartType]);
 
-  const top10Data = useMemo(() => sortedData.slice(0, 10), [sortedData]);
+      return result;
+  }, [recalculatedData, filterCode, aiSortConfig, chartType]);
 
-  const handleAiSearch = async () => {
-    if (!searchQuery.trim()) return;
-    setIsSearching(true);
-    const code = await getFilterCondition(searchQuery);
-    if(code) setFilterCode(code);
-    setIsSearching(false);
-  };
+  // 차트에는 상위 10개만 표시
+  const top10Data = useMemo(() => filteredData.slice(0, 10), [filteredData]);
 
-  const resetSearch = () => {
-      setSearchQuery('');
-      setFilterCode(null);
-  };
-
-const handleKeyDown = (e) => {
-  // 'Enter' 키가 눌렸을 때만! 그리고 한글 조합 중(isComposing)이 아닐 때만 실행
-  if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
-    e.preventDefault(); // 폼 제출 등 기본 동작 방지
-    handleAiSearch(e.target.value);
-  }
-};
-
-  const handleSettingChange = (key, val) => {
-    setThresholds(prev => ({ ...prev, [key]: Number(val) }));
-  };
-
+  // --- 렌더링 ---
   return (
     <div>
-      {/* 상단 검색 및 설정 영역 */}
+      {/* 1. 상단 검색 및 설정 영역 */}
       <div className="mb-6 bg-indigo-50 p-4 rounded-xl border border-indigo-100 flex items-center gap-3 shadow-sm">
         <div className="bg-white p-2 rounded-full text-indigo-600 shadow-sm">
             <Sparkles size={20} />
@@ -159,7 +224,7 @@ const handleKeyDown = (e) => {
                     <input 
                         type="text" 
                         className="w-full border border-indigo-200 rounded-lg pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                        placeholder='예: "매출 100만원 이상인 사람"'
+                        placeholder='예: "매출 100만원 이상", "미작성 후기 많은 순서"'
                         value={searchQuery}
                         onChange={(e)=>setSearchQuery(e.target.value)}
                         onKeyDown={handleKeyDown}
@@ -168,13 +233,14 @@ const handleKeyDown = (e) => {
                     <Search className="absolute left-3 top-2.5 text-indigo-300" size={16} />
                 </div>
                 <button 
-                    onClick={handleAiSearch} 
+                    onClick={() => handleAiSearch()} 
                     disabled={isSearching}
                     className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-indigo-700 transition disabled:bg-indigo-300"
                 >
                     {isSearching ? '분석 중...' : '검색'}
                 </button>
-                {filterCode && (
+                
+                {(filterCode || aiSortConfig) && (
                     <button onClick={resetSearch} className="bg-white text-gray-500 border px-3 rounded-lg hover:bg-gray-50 transition" title="검색 초기화">
                         <RotateCcw size={18}/>
                     </button>
@@ -211,7 +277,6 @@ const handleKeyDown = (e) => {
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-1">⏰ A: 최소 접속시간 (시간 미만)</label>
                 <input type="number" className="w-full border p-2 rounded" value={thresholds.minTime} onChange={(e)=>handleSettingChange('minTime', e.target.value)} />
-                <p className="text-xs text-gray-400 mt-1">예: 30 입력 시, 30시간 미만 접속자에게 이슈 표시</p>
               </div>
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-1">📉 B: 매출 하락 (% 이상)</label>
@@ -227,7 +292,7 @@ const handleKeyDown = (e) => {
         </div>
       )}
 
-      {/* 차트 영역 */}
+      {/* 2. 차트 영역 */}
       <div className="mb-8 p-4 border rounded-xl bg-white shadow-sm">
         <div className="flex justify-between items-center mb-4">
             <div className="flex gap-2 bg-gray-100 p-1 rounded-lg">
@@ -235,6 +300,12 @@ const handleKeyDown = (e) => {
                 <button onClick={()=>setChartType('time')} className={`px-4 py-2 text-sm font-bold rounded-md transition ${chartType==='time'?'bg-white shadow text-green-600':'text-gray-500'}`}>⏰ 접속시간</button>
             </div>
             <div className="flex items-center gap-2">
+                {/* AI 정렬 상태 표시 */}
+                {aiSortConfig && (
+                    <span className="text-xs font-bold bg-indigo-100 text-indigo-700 px-2 py-1 rounded">
+                        🤖 {aiSortConfig.key === 'unanswered' ? '미작성 후기' : aiSortConfig.key} 기준 정렬 중
+                    </span>
+                )}
                 <span className="text-xs font-bold text-gray-500">
                     총 {filteredData.length}명 표시됨
                 </span>
@@ -246,6 +317,7 @@ const handleKeyDown = (e) => {
         </div>
       </div>
 
+      {/* 차트 확대 모달 */}
       {showModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-10">
               <div className="bg-white rounded-xl w-full h-full max-w-7xl p-6 flex flex-col shadow-2xl">
@@ -257,15 +329,15 @@ const handleKeyDown = (e) => {
                       <button onClick={()=>setShowModal(false)} className="p-2 hover:bg-gray-100 rounded-full transition"><X size={28}/></button>
                   </div>
                   <div className="flex-1 overflow-x-auto overflow-y-hidden pb-4">
-                      <div style={{ width: `${Math.max(100, sortedData.length * 60)}px`, height: '100%' }}>
-                          <ChartComponent dataset={sortedData} chartType={chartType} isMonthly={isMonthly} height="100%" />
+                      <div style={{ width: `${Math.max(100, filteredData.length * 60)}px`, height: '100%' }}>
+                          <ChartComponent dataset={filteredData} chartType={chartType} isMonthly={isMonthly} height="100%" />
                       </div>
                   </div>
               </div>
           </div>
       )}
 
-      {/* 테이블 영역 */}
+      {/* 3. 테이블 영역 */}
       <div className="overflow-x-auto">
         <table className="w-full text-sm text-center whitespace-nowrap border-collapse table-fixed">
           <thead className="bg-gray-100 text-gray-700 font-bold uppercase sticky top-0 z-10 shadow-sm">
