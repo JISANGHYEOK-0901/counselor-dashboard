@@ -62,7 +62,7 @@ export const getFilterCondition = async (userInput) => {
     `;
 
     const response = await genAI.models.generateContent({
-      model: "gemini-2.0-flash",
+      model: "gemini-1.5-flash",
       contents: [
         { role: "user", parts: [{ text: systemPrompt + `\n\n사용자 입력: ${userInput}` }] }
       ]
