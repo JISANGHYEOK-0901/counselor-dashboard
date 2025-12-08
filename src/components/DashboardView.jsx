@@ -133,9 +133,13 @@ const DashboardView = ({ data, memo, setMemo, isMonthly }) => {
       setFilterCode(null);
   };
 
-  const handleKeyDown = (e) => {
-      if (e.key === 'Enter') handleAiSearch();
+const handleKeyDown = (e) => {
+  // 'Enter' 키가 눌렸을 때만! 그리고 한글 조합 중(isComposing)이 아닐 때만 실행
+  if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+    e.preventDefault(); // 폼 제출 등 기본 동작 방지
+    handleAiSearch(e.target.value);
   }
+};
 
   const handleSettingChange = (key, val) => {
     setThresholds(prev => ({ ...prev, [key]: Number(val) }));
