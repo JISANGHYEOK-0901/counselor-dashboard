@@ -10,9 +10,9 @@ import AdManager from "./components/AdManager";
 import RevenuePage from "./components/RevenuePage";
 import PerformanceReportTable from "./components/PerformanceReportTable";
 import EmptyState from "./components/EmptyState";
+import WorkLogPage from "./components/WorkLogPage"; // [추가] 새로 만든 업무일지 페이지
 
 // 🌑 [초강력 다크모드 스타일] 
-// 컴포넌트 내부를 수정하지 못해도, 겉에서 강제로 색상을 주입합니다.
 const GlobalDarkStyle = () => (
   <style>{`
     /* 1. 기본 배경 및 텍스트 색상 반전 (가장 강력한 규칙) */
@@ -78,8 +78,15 @@ function App() {
   const [activeTab, setActiveTab] = useState('weekly');
   const [memo, setMemo] = useState(() => JSON.parse(localStorage.getItem('dashboardMemo')) || {});
   const [adHistory, setAdHistory] = useState(() => JSON.parse(localStorage.getItem('adHistory')) || {});
-  const [pasteModal, setPasteModal] = useState({ open: false, target: '' });
+  
+  // [추가] 업무일지 데이터 State
+  const [workLogs, setWorkLogs] = useState(() => JSON.parse(localStorage.getItem('workLogs')) || {
+      remarks: [],
+      recruitments: [],
+      interviews: []
+  });
 
+  const [pasteModal, setPasteModal] = useState({ open: false, target: '' });
   const [targetMonth, setTargetMonth] = useState(new Date().getMonth() + 1);
   
   // 🌑 다크모드 상태 관리
@@ -89,6 +96,7 @@ function App() {
   useEffect(() => localStorage.setItem('dashboardMemo', JSON.stringify(memo)), [memo]);
   useEffect(() => localStorage.setItem('adHistory', JSON.stringify(adHistory)), [adHistory]);
   useEffect(() => localStorage.setItem('rawDataStorage', JSON.stringify(tempFiles)), [tempFiles]);
+  useEffect(() => localStorage.setItem('workLogs', JSON.stringify(workLogs)), [workLogs]);
 
   useEffect(() => {
     const savedTheme = localStorage.getItem('theme');
@@ -155,6 +163,7 @@ function App() {
       setTempFiles({ lastWeek: null, thisWeek: null, lastMonth: null, thisMonth: null });
       setMemo({});
       setAdHistory({});
+      setWorkLogs({ remarks: [], recruitments: [], interviews: [] }); // [추가] 초기화
       alert("초기화되었습니다.");
   };
 
@@ -182,7 +191,10 @@ function App() {
       try {
           const processedCurrent = processWeeklyAnalysis(tempFiles.thisMonth.data, tempFiles.lastMonth.data);
           const processedPast = processWeeklyAnalysis(tempFiles.lastMonth.data, []);
-          generateMonthlyReportExcel(processedCurrent, processedPast, targetMonth);
+          
+          // [수정] generateMonthlyReportExcel 호출 시 memo와 workLogs 전달
+          generateMonthlyReportExcel(processedCurrent, processedPast, targetMonth, memo, workLogs);
+          
           alert("엑셀 파일 다운로드가 시작되었습니다.");
       } catch (e) {
           console.error(e);
@@ -196,6 +208,7 @@ function App() {
     { id: 'report', label: '📝 성과 보고서' },
     { id: 'ad', label: '📢 광고 관리' },
     { id: 'revenue', label: '💰 월매출 비교' },
+    { id: 'worklog', label: '📓 업무 일지' }, // [추가]
   ];
 
   return (
@@ -264,7 +277,7 @@ function App() {
           </div>
 
           {/* 파일 업로드 및 분석 영역 */}
-          {activeTab !== 'ad' && (
+          {activeTab !== 'ad' && activeTab !== 'worklog' && (
               <div className="flex gap-4 items-stretch">
                 {activeTab === 'weekly' ? (
                     <>
@@ -319,6 +332,7 @@ function App() {
           {activeTab === 'ad' && (persistedData.weekly ? <AdManager data={persistedData.weekly} history={adHistory} setHistory={setAdHistory} /> : <EmptyState />)}
           {activeTab === 'revenue' && (persistedData.revSummary ? <RevenuePage summary={persistedData.revSummary} memo={memo} setMemo={setMemo} /> : <EmptyState type="monthly" />)}
           {activeTab === 'report' && (persistedData.report ? <PerformanceReportTable data={persistedData.report} /> : <EmptyState type="monthly" />)}
+          {activeTab === 'worklog' && <WorkLogPage workLogs={workLogs} setWorkLogs={setWorkLogs} />}
         </div>
       </div>
     </div>
