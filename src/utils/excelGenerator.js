@@ -250,7 +250,10 @@ export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, target
              const grossRevenue = row.curRev || 0; 
              partnerRows.push([
                  row.category, row.levelCat, row.level, row.nick, 
-                 '-', targetDateStr, formatTime(row.curTime), grossRevenue, ''
+                 '-', targetDateStr, 
+                 // [수정] 상담시간 -> 전체정산 시간으로 변경
+                 formatTime(row.curSettleTime), 
+                 grossRevenue, ''
              ]);
           }
       });
@@ -286,7 +289,9 @@ export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, target
 
   const pTitle = targetDateStr ? `■ 파트너 계약 상담사 (${targetDateStr}월 적용)` : `■ 파트너 계약 상담사`;
   XLSX.utils.sheet_add_aoa(ws3, [[pTitle]], {origin: {r: currRow++, c: 1}});
-  XLSX.utils.sheet_add_aoa(ws3, [['분야', '등록단계', '단계', '활동명', '등록일', '계약일', '상담시간', '정산금액', 'TTL']], {origin: {r: currRow, c: 1}});
+  
+  // [수정] 헤더 명칭 '상담시간' -> '전체정산'으로 변경
+  XLSX.utils.sheet_add_aoa(ws3, [['분야', '등록단계', '단계', '활동명', '등록일', '계약일', '전체정산', '정산금액', 'TTL']], {origin: {r: currRow, c: 1}});
   applyCellStyle(ws3, {s:{r:currRow, c:1}, e:{r:currRow, c:9}}, 'greenHeader');
   currRow++;
   XLSX.utils.sheet_add_aoa(ws3, partnerRows, {origin: {r: currRow, c: 1}});
@@ -348,9 +353,9 @@ export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, target
       r.phoneSuccess || 0,
       r.phoneFail || 0,
       r.curMissed || 0,
-      formatTime(r.curTime), // 접속시간 (R열)
-      formatTime(r.curTime), // [수정] 전체정산 = 시간 데이터 (S열)
-      r.curRev || 0          // [수정] 전체정산금액 = 비율 미적용 총 매출 (T열)
+      formatTime(r.curTime),       // 접속시간 (R열)
+      formatTime(r.curSettleTime), // 전체정산 = '전체정산' 열 시간 데이터 (S열)
+      r.curRev || 0                // 전체정산금액 = 비율 미적용 총 매출 (T열)
     ];
   });
 

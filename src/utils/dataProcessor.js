@@ -34,15 +34,23 @@ const parseTime = (val) => {
   if (!val) return 0;
   if (typeof val === 'number') return Math.round(val * 24 * 60); 
   const str = String(val).trim();
+  // "58시간 8분 41초" 형식 파싱 지원
   const h = str.match(/(\d+)\s*시간/);
   const m = str.match(/(\d+)\s*분/);
-  let minutes = 0;
-  if (h) minutes += parseInt(h[1]) * 60;
-  if (m) minutes += parseInt(m[1]);
-  if (!h && !m) minutes = parseNum(str);
-  return minutes * 60; // 초 단위로 반환 (일관성 유지를 위해 seconds로 처리 권장하나 로직상 기존 분단위 사용시 조정필요. 여기선 초단위 통일)
+  const s = str.match(/(\d+)\s*초/); // 초 단위 추가 파싱
+  
+  let totalSeconds = 0;
+  if (h) totalSeconds += parseInt(h[1]) * 3600;
+  if (m) totalSeconds += parseInt(m[1]) * 60;
+  if (s) totalSeconds += parseInt(s[1]);
+  
+  if (!h && !m && !s) {
+      // 숫자만 있는 경우 분 단위로 가정했던 기존 로직 유지하되 초단위 변환
+      totalSeconds = parseNum(str) * 60; 
+  }
+  
+  return totalSeconds; // 초 단위 반환
 };
-// 주의: 위 parseTime에서 * 60을 해서 초 단위로 넘기면, excelGenerator의 formatTime(seconds)와 호환됩니다.
 
 const findVal = (row, ...candidates) => {
   if (!row) return undefined;
@@ -123,12 +131,10 @@ export const aggregateData = (rawData) => {
         let category = cleanStr(findVal(row, '카테고리', '상담분야'));
         if (!category && nick === lastMeta.nick) category = lastMeta.category; else lastMeta.category = category;
 
-        // 등급 분류
         let rawLevelCat = row['단계'] || findVal(row, '등급분류', '단계(그린,퍼플)', '등급');
         let levelCat = normalizeLevel(rawLevelCat);
         if (!levelCat && nick === lastMeta.nick) levelCat = lastMeta.levelCat; else lastMeta.levelCat = levelCat;
 
-        // 상세 단계
         let levelVal = row['단계_1'] || findVal(row, '상세단계', '레벨', '단계');
         if (!levelVal && nick === lastMeta.nick) levelVal = lastMeta.levelVal; else lastMeta.levelVal = levelVal;
 
@@ -146,7 +152,10 @@ export const aggregateData = (rawData) => {
                 levelVal: levelVal,
                 phone: phone || '',
                 services: '',
-                curRev: 0, curTime: 0, curMissed: 0, reviews: 0, answers: 0,
+                curRev: 0, 
+                curTime: 0, 
+                curSettleTime: 0, // [NEW] 전체정산(시간) 저장용 변수
+                curMissed: 0, reviews: 0, answers: 0,
                 satisfaction: 0,
                 coinTotal: 0, coinSuccess: 0, coinFail: 0,
                 phoneTotal: 0, phoneSuccess: 0, phoneFail: 0,
@@ -157,12 +166,16 @@ export const aggregateData = (rawData) => {
         const entry = map[nick];
         if (memo && !entry.memo.includes(memo)) entry.memo += ` ${memo}`;
 
-        // 전체정산금액(비율 적용 전) - 입력 데이터에서 그대로 합산
-        entry.curRev += parseNum(findVal(row, '전체정산 금액', '전체정산금액', '전체정산'));
+        // 금액
+        entry.curRev += parseNum(findVal(row, '전체정산 금액', '전체정산금액')); 
         
-        // 접속시간 (초 단위로 합산)
+        // 접속시간
         entry.curTime += parseTime(findVal(row, '접속시간'));
-        
+
+        // [NEW] 전체정산 (시간 데이터)
+        // 원본 엑셀의 '전체정산' 열을 찾아서 시간 형식으로 파싱하여 저장합니다.
+        entry.curSettleTime += parseTime(findVal(row, '전체정산'));
+
         const cf = parseNum(findVal(row, '코인콜수 실패'));
         const cs = parseNum(findVal(row, '코인콜수 성공'));
         const pf = parseNum(findVal(row, '060콜수 실패'));
@@ -298,7 +311,7 @@ export const processWeeklyAnalysis = (currentRaw, pastRaw = [], historyData = {}
   });
 
   let results = currentData.map(row => {
-    const { nick, realName, category, levelCat, levelStr, levelNum, phone, curRev, curTime, curMissed, unanswered, services } = row;
+    const { nick, realName, category, levelCat, levelStr, levelNum, phone, curRev, curTime, curSettleTime, curMissed, unanswered, services } = row;
     let prevRow = null;
     let remarks = [];
     let isNew = false;
@@ -348,7 +361,6 @@ export const processWeeklyAnalysis = (currentRaw, pastRaw = [], historyData = {}
             if (hasChat) adEligibleTypes.push('채팅(메인)');
             
             let canPhoneMain = false;
-            // 시간 기준 체크 (초 단위이므로 3600으로 나눠서 시간으로 변환)
             const hours = curTime / 3600; 
             if (levelNum >= 3) {
                 canPhoneMain = true; 
@@ -364,6 +376,7 @@ export const processWeeklyAnalysis = (currentRaw, pastRaw = [], historyData = {}
       nick, realName, category, levelCat, level: levelStr, levelNum,
       curRev, prevRev, revDelta, revRate,
       curTime, prevTime, timeDelta, timeRate,
+      curSettleTime: curSettleTime, // [NEW] 결과에 포함
       unanswered, curMissed,
       reviews: row.reviews,
       answers: row.answers,
@@ -387,6 +400,7 @@ export const processWeeklyAnalysis = (currentRaw, pastRaw = [], historyData = {}
               nick: row.nick, realName: row.realName, category: row.category, levelCat: row.levelCat, level: row.levelStr, levelNum: row.levelNum,
               curRev: 0, prevRev: row.curRev, revDelta: 0 - row.curRev, revRate: -1,
               curTime: 0, prevTime: row.curTime, timeDelta: 0 - row.curTime, timeRate: -1,
+              curSettleTime: 0,
               unanswered: 0, curMissed: 0, remarks: '블라인드 상담사', issues: [], adEligibleTypes: [], status: 'blind',
               reviews: 0, answers: 0, satisfaction: 0, 
               coinTotal:0, coinSuccess:0, coinFail:0, phoneTotal:0, phoneSuccess:0, phoneFail:0,
@@ -405,7 +419,7 @@ export const processMonthlyAnalysis = (thisMonth, lastMonth = []) => {
     return basicData.map(row => {
         const issues = [];
         if (row.curMissed >= 10) issues.push('C(월간부재)'); 
-        if (row.curTime < 60 * 60) issues.push('시간미달'); // 1시간 미만 체크
+        if (row.curTime < 60 * 60) issues.push('시간미달'); 
 
         let promotionStatus = '-';
         const nextLevelNum = row.levelNum + 1;
@@ -414,7 +428,6 @@ export const processMonthlyAnalysis = (thisMonth, lastMonth = []) => {
         const nextFullLevel = `${cleanLevelCat}${nextLevelNum}단계`; 
 
         const ratio = SETTLEMENT_RATIOS[currentFullLevel] || 0.45;
-        // 승급 판단용으로는 비율 적용된 금액이 필요하므로 계산
         const mySettleAmount = Math.floor(row.curRev * ratio); 
 
         if (LEVEL_STANDARDS[nextFullLevel]) {
