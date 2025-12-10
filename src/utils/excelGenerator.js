@@ -47,6 +47,12 @@ const STYLES = {
     alignment: { vertical: "center", horizontal: "center" },
     border: { top: { style: "thin", color: COLORS.grayBorder }, bottom: { style: "thin", color: COLORS.grayBorder }, left: { style: "thin", color: COLORS.grayBorder }, right: { style: "thin", color: COLORS.grayBorder } }
   },
+  // [NEW] 줄바꿈이 적용된 본문 스타일 (텍스트가 길 경우 자동 줄바꿈)
+  wrappedBody: {
+    font: { ...FONTS.body },
+    alignment: { vertical: "top", horizontal: "center", wrapText: true }, 
+    border: { top: { style: "thin", color: COLORS.grayBorder }, bottom: { style: "thin", color: COLORS.grayBorder }, left: { style: "thin", color: COLORS.grayBorder }, right: { style: "thin", color: COLORS.grayBorder } }
+  },
   numberBody: {
     font: { ...FONTS.body },
     alignment: { vertical: "center", horizontal: "right" },
@@ -86,7 +92,7 @@ const applyCellStyle = (ws, range, styleType) => {
       if (!ws[addr]) continue;
       ws[addr].s = STYLES[styleType];
       
-      // 숫자 데이터(%, 원) 별도 처리
+      // 숫자 데이터(%, 원) 별도 처리 (단, wrappedBody가 아닐 때만)
       if (styleType === 'body' && (typeof ws[addr].v === 'number' || String(ws[addr].v).includes('%'))) {
          ws[addr].s = STYLES.numberBody;
       }
@@ -129,7 +135,6 @@ export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, target
   // ------------------------------------------------------------------
   // Sheet 1: 매출 증감
   // ------------------------------------------------------------------
-  // [요청 반영] 헤더에 구체적인 월 표기 (예: 9월 접속시간, 10월 전체정산금액)
   const s1Header = [
     '분야', '단계', '단계', '닉네임', 
     `${prevMonthStr} 접속시간`, `${monthStr} 접속시간`, '접속 증감률', 
@@ -141,12 +146,11 @@ export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, target
   const mergeText = '증액,하락\n통합\n(전체상담사)\n단계별로 정렬';
   
   analyzedCurrent.forEach((row, i) => {
-    // 요청사항: 전체정산금액은 비율 적용 전 금액(Gross Revenue)
     const prevGross = row.prevRev || 0; 
     const currGross = row.curRev || 0;
 
     s1Data.push([
-      i === 0 ? mergeText : '', // A열 병합용 텍스트
+      i === 0 ? mergeText : '', 
       row.category || '-',
       row.levelCat || '-',
       row.level || '-',
@@ -154,8 +158,8 @@ export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, target
       formatTime(row.prevTime),
       formatTime(row.curTime),
       (row.timeRate * 100).toFixed(1) + '%',
-      prevGross, // 전체정산금액(비율X)
-      currGross, // 전체정산금액(비율X)
+      prevGross, 
+      currGross, 
       (row.revRate * 100).toFixed(1) + '%',
       currGross - prevGross,
       row.reason || '-', 
@@ -164,24 +168,21 @@ export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, target
   });
 
   const ws1 = XLSX.utils.aoa_to_sheet([
-    [''], // Row 0
-    ['', ...s1Header], // Row 1
+    [''], 
+    ['', ...s1Header], 
     ...s1Data
   ]);
 
   XLSX.utils.sheet_add_aoa(ws1, [[monthStr]], { origin: "A2" });
 
-  // 스타일 적용
   const ws1Range = XLSX.utils.decode_range(ws1['!ref']);
   applyCellStyle(ws1, {s: {r:1, c:1}, e: {r:1, c:13}}, 'purpleHeader');
   applyCellStyle(ws1, {s: {r:2, c:0}, e: ws1Range.e}, 'body');
   
-  // A열 병합 스타일
   const aColStyle = { ...STYLES.body, alignment: { horizontal: "center", vertical: "center", wrapText: true } };
   for(let r=2; r<=9; r++) { const addr = XLSX.utils.encode_cell({r, c:0}); if(ws1[addr]) ws1[addr].s = aColStyle; }
   ws1['!merges'] = [{ s: {r:2, c:0}, e: {r:9, c:0} }];
 
-  // 금액 컬럼 서식 (I열:8, J열:9, L열:11)
   for (let R = 2; R <= ws1Range.e.r; ++R) {
       [8, 9, 11].forEach(C => {
           const addr = XLSX.utils.encode_cell({ r: R, c: C });
@@ -227,7 +228,6 @@ export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, target
   let targetYM = 0;      
   let targetDateStr = ""; 
 
-  // 1. 최신 파트너 계약 월 찾기 (메모 기반)
   analyzedCurrent.forEach(row => {
     const m = String(row.memo || "");
     const match = m.match(/(\d{2}\.\d{2})월.*파트너/);
@@ -242,7 +242,6 @@ export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, target
     }
   });
 
-  // 2. 해당 월의 파트너 추출
   if(targetDateStr) {
       analyzedCurrent.forEach(row => {
           const m = String(row.memo || "");
@@ -251,7 +250,6 @@ export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, target
              partnerRows.push([
                  row.category, row.levelCat, row.level, row.nick, 
                  '-', targetDateStr, 
-                 // [수정] 상담시간 -> 전체정산 시간으로 변경
                  formatTime(row.curSettleTime), 
                  grossRevenue, ''
              ]);
@@ -262,23 +260,21 @@ export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, target
   if(partnerRows.length > 0) partnerRows[0][8] = partnerRows.length+'명';
   else partnerRows.push(['', '', '', '', '', '대상 없음', '', '', '']);
 
-  // [요청 반영] 블라인드 상담사: '사유' 컬럼(인덱스 5)에 'userMemo' 내용 삽입
   const blindRows = analyzedCurrent.filter(r => r.status === 'blind').map((r, i) => {
-      const memoContent = userMemo[r.nick] || '미활동'; // 메모가 있으면 사용, 없으면 '미활동'
+      const memoContent = userMemo[r.nick] || '미활동';
       return [
           monthStr, r.category, r.levelCat, r.level, r.nick, 
-          memoContent, // 여기가 사유 컬럼
+          memoContent, 
           i===0 ? (analyzedCurrent.filter(x=>x.status==='blind').length+'명') : ''
       ];
   });
   if(blindRows.length === 0) blindRows.push(['', '', '', '', '', '대상 없음', '']);
 
-  // [요청 반영] 신규 상담사: '등록일' 컬럼(인덱스 5)에 'userMemo' 내용 삽입
   const newRows = analyzedCurrent.filter(r => r.status === 'new').map((r, i) => {
-      const memoContent = userMemo[r.nick] || '-'; // 메모가 있으면 사용 (날짜 등)
+      const memoContent = userMemo[r.nick] || '-';
       return [
           monthStr, r.category, r.levelCat, r.level, r.nick, 
-          memoContent, // 여기가 등록일/비고 컬럼
+          memoContent, 
           i===0 ? (analyzedCurrent.filter(x=>x.status==='new').length+'명') : ''
       ];
   });
@@ -290,7 +286,6 @@ export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, target
   const pTitle = targetDateStr ? `■ 파트너 계약 상담사 (${targetDateStr}월 적용)` : `■ 파트너 계약 상담사`;
   XLSX.utils.sheet_add_aoa(ws3, [[pTitle]], {origin: {r: currRow++, c: 1}});
   
-  // [수정] 헤더 명칭 '상담시간' -> '전체정산'으로 변경
   XLSX.utils.sheet_add_aoa(ws3, [['분야', '등록단계', '단계', '활동명', '등록일', '계약일', '전체정산', '정산금액', 'TTL']], {origin: {r: currRow, c: 1}});
   applyCellStyle(ws3, {s:{r:currRow, c:1}, e:{r:currRow, c:9}}, 'greenHeader');
   currRow++;
@@ -353,9 +348,9 @@ export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, target
       r.phoneSuccess || 0,
       r.phoneFail || 0,
       r.curMissed || 0,
-      formatTime(r.curTime),       // 접속시간 (R열)
-      formatTime(r.curSettleTime), // 전체정산 = '전체정산' 열 시간 데이터 (S열)
-      r.curRev || 0                // 전체정산금액 = 비율 미적용 총 매출 (T열)
+      formatTime(r.curTime),       
+      formatTime(r.curSettleTime), 
+      r.curRev || 0                
     ];
   });
 
@@ -364,7 +359,6 @@ export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, target
   applyCellStyle(ws4, {s:{r:1, c:1}, e:{r:1, c:20}}, 'greenHeader');
   applyCellStyle(ws4, {s:{r:2, c:1}, e:{r:1+s4Data.length, c:20}}, 'body');
 
-  // 서식 적용
   for (let R = 2; R <= 1 + s4Data.length; ++R) {
       const addrT = XLSX.utils.encode_cell({ r: R, c: 20 });
       if (ws4[addrT]) ws4[addrT].s = CURRENCY_STYLE;
@@ -375,11 +369,10 @@ export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, target
   XLSX.utils.book_append_sheet(wb, ws4, "전체매출");
 
   // ------------------------------------------------------------------
-  // Sheet 5: 기타 (복잡한 레이아웃 + WorkLog 연동)
+  // Sheet 5: 기타 (복잡한 레이아웃 + WorkLog 연동 + 줄바꿈 수정 적용)
   // ------------------------------------------------------------------
   const ws5 = XLSX.utils.aoa_to_sheet([]);
   
-  // 헤더 설정
   XLSX.utils.sheet_add_aoa(ws5, [['상담사 특이사항', '','','']], {origin: "B2"});
   XLSX.utils.sheet_add_aoa(ws5, [['섭외 건수', '','','']], {origin: "G2"});
   XLSX.utils.sheet_add_aoa(ws5, [['섭외 총 건수', '','']], {origin: "L2"});
@@ -392,7 +385,7 @@ export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, target
   XLSX.utils.sheet_add_aoa(ws5, [['분야', '상담사명', '결과', '비고']], {origin: "P3"});
   XLSX.utils.sheet_add_aoa(ws5, [['합격', '불합격', 'TTL']], {origin: "U3"});
 
-  // 스타일 적용
+  // 헤더 스타일
   applyCellStyle(ws5, {s:{r:1, c:1}, e:{r:1, c:4}}, 'greenHeader');
   applyCellStyle(ws5, {s:{r:2, c:1}, e:{r:2, c:4}}, 'greenHeader');
   applyCellStyle(ws5, {s:{r:1, c:6}, e:{r:1, c:9}}, 'greenHeader');
@@ -410,27 +403,23 @@ export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, target
     {s:{r:1, c:20}, e:{r:1, c:22}},
   ];
 
-  applyCellStyle(ws5, {s:{r:3, c:1}, e:{r:53, c:4}}, 'body');
-  applyCellStyle(ws5, {s:{r:3, c:6}, e:{r:53, c:9}}, 'body');
-  applyCellStyle(ws5, {s:{r:3, c:11}, e:{r:3, c:13}}, 'body');
-  applyCellStyle(ws5, {s:{r:3, c:15}, e:{r:15, c:18}}, 'body');
-  applyCellStyle(ws5, {s:{r:3, c:20}, e:{r:3, c:22}}, 'body');
+  // [수정 핵심] 줄바꿈 스타일 적용 (wrappedBody)
+  applyCellStyle(ws5, {s:{r:3, c:1}, e:{r:53, c:4}}, 'wrappedBody'); // 특이사항 본문
+  applyCellStyle(ws5, {s:{r:3, c:6}, e:{r:53, c:9}}, 'wrappedBody'); // 섭외 본문
+  applyCellStyle(ws5, {s:{r:3, c:11}, e:{r:3, c:13}}, 'body');       // 섭외 통계
+  applyCellStyle(ws5, {s:{r:3, c:15}, e:{r:15, c:18}}, 'wrappedBody');// 면접 본문
+  applyCellStyle(ws5, {s:{r:3, c:20}, e:{r:3, c:22}}, 'body');       // 면접 통계
 
-  // [요청 반영] workLogs 데이터가 있으면 해당 위치에 삽입
+  // WorkLog 데이터 삽입
   if (workLogs) {
-      // 1. 상담사 특이사항 (B4부터)
       if (workLogs.remarks && workLogs.remarks.length > 0) {
           const remarkData = workLogs.remarks.map(r => [r.category, r.level, r.name, r.note]);
           XLSX.utils.sheet_add_aoa(ws5, remarkData, { origin: "B4" });
       }
-
-      // 2. 섭외 건수 (G4부터)
       if (workLogs.recruitments && workLogs.recruitments.length > 0) {
           const recruitData = workLogs.recruitments.map(r => [r.category, r.name, r.contact, r.status]);
           XLSX.utils.sheet_add_aoa(ws5, recruitData, { origin: "G4" });
       }
-
-      // 3. 면접 건수 (P4부터)
       if (workLogs.interviews && workLogs.interviews.length > 0) {
           const interviewData = workLogs.interviews.map(r => [r.category, r.name, r.result, r.note]);
           XLSX.utils.sheet_add_aoa(ws5, interviewData, { origin: "P4" });
@@ -451,10 +440,10 @@ export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, target
   ]], {origin: "U4"});
 
   ws5['!cols'] = [
-    {wch:2}, {wch:8}, {wch:8}, {wch:12}, {wch:25}, {wch:2},
-    {wch:8}, {wch:12}, {wch:15}, {wch:12}, {wch:2},
+    {wch:2}, {wch:8}, {wch:8}, {wch:12}, {wch:40}, {wch:2},
+    {wch:8}, {wch:12}, {wch:15}, {wch:20}, {wch:2},
     {wch:8}, {wch:8}, {wch:8}, {wch:2},
-    {wch:8}, {wch:12}, {wch:10}, {wch:15}, {wch:2},
+    {wch:8}, {wch:12}, {wch:10}, {wch:25}, {wch:2},
     {wch:8}, {wch:8}, {wch:8}
   ];
   setZoom(ws5);
@@ -484,7 +473,8 @@ export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, target
   if(ws6[addr2]) ws6[addr2].s = { ...titleStyle, alignment: { horizontal: "center" } };
 
   applyCellStyle(ws6, {s:{r:3, c:1}, e:{r:3, c:5}}, 'greenHeader'); 
-  applyCellStyle(ws6, {s:{r:4, c:1}, e:{r:15, c:5}}, 'body');
+  // [수정] 성과 보고도 줄바꿈이 필요하므로 wrappedBody 적용
+  applyCellStyle(ws6, {s:{r:4, c:1}, e:{r:15, c:5}}, 'wrappedBody');
 
   ws6['!cols'] = [{wch:2}, {wch:6}, {wch:15}, {wch:45}, {wch:10}, {wch:45}];
   setZoom(ws6);
