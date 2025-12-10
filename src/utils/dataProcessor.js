@@ -29,15 +29,13 @@ const parseNum = (val) => {
   return parseFloat(String(val).replace(/[^0-9.-]/g, '')) || 0;
 };
 
-// 시간 파싱 (줄바꿈/공백 완벽 제거)
 const parseTime = (val) => {
   if (!val) return 0;
   if (typeof val === 'number') return Math.round(val * 24 * 60 * 60);
   
   const str = String(val).trim();
   if (!str) return 0;
-
-  const cleanStr = str.replace(/\s/g, ''); // 공백/줄바꿈 제거
+  const cleanStr = str.replace(/\s/g, ''); 
 
   if (cleanStr.includes(':')) {
     const parts = cleanStr.split(':').map(part => parseFloat(part) || 0);
@@ -61,7 +59,6 @@ const parseTime = (val) => {
   
   const rawNum = parseNum(cleanStr);
   if (rawNum > 0) return rawNum * 60;
-
   return 0;
 };
 
@@ -79,10 +76,8 @@ const findVal = (row, ...candidates) => {
 export const analyzeReasonAndGoal = (timeRate, revRate, hasCur, hasPrev, curTimeSeconds) => {
   const noChangeThreshold = 0.07; 
   const THIRTY_HOURS_SEC = 30 * 60 * 60; 
+  let reason = '-', goal = '';
 
-  let reason = '-';
-  let goal = '';
-  // (이전 로직 유지)
   if (!hasCur && hasPrev) { reason = '블라인드 상담사'; goal = '-'; }
   else if (hasCur && !hasPrev) { reason = '신규 상담사'; goal = '플랫폼에 대한 이해 필요, 본인의 규칙적인 접속시간 설정 및 포스팅 작성, 공지사항 안내를 통한 고객확보 필요'; }
   else if (hasCur && curTimeSeconds < THIRTY_HOURS_SEC) { reason = '접속은 하였으나 접속시간 매우부족'; goal = '접속시간 증가 필요, 규칙적인 접속시간 유지 및 단골 확보하여 매출 높일 수 있도록 목표설정'; }
@@ -94,7 +89,6 @@ export const analyzeReasonAndGoal = (timeRate, revRate, hasCur, hasPrev, curTime
   else if (revRate > 0 && timeRate < 0) { reason = '접속시간 하락하였으나 매출 증가'; goal = '접속시간 증가 필요, 규칙적인 접속시간 유지 및 단골 확보하여 매출 높일 수 있도록 목표 설정'; }
   else if (revRate < 0 && timeRate > 0) { reason = '접속시간 증가하였으나 매출 하락'; goal = '지속 접속하기보단 본인만의 규칙적인 접속시간 설정 및 공지가 필요하며 서비스 공지글 업데이트, 포스팅 작성 등을 통한 고객확보 필요'; }
   else if (revRate < 0 && timeRate < 0) { reason = '접속시간 하락으로 인한 매출하락'; goal = '접속시간 증가 필요, 서비스 공지글 업데이트, 포스팅 작성 등을 통한 고객확보 필요.'; }
-
   return { reason, goal };
 };
 
@@ -104,14 +98,13 @@ export const analyzeReasonAndGoal = (timeRate, revRate, hasCur, hasPrev, curTime
 
 export const aggregateData = (rawData) => {
     if (!Array.isArray(rawData)) return [];
-    console.log("=== 데이터 집계 시작 ===");
     const map = {};
     let lastMeta = { nick: '', realName: '', category: '-', levelCat: '-', levelVal: '', phone: '' };
     
     const cleanStr = (val) => String(val || '').trim();
     const normalizeLevel = (val) => String(val || '').replace(/\s+/g, '').trim();
 
-    rawData.forEach(row => {
+    rawData.forEach((row, idx) => {
         let nick = normalize(findVal(row, '닉네임'));
         if (!nick) nick = lastMeta.nick; else lastMeta.nick = nick;
         if (!nick) return; 
@@ -137,8 +130,7 @@ export const aggregateData = (rawData) => {
         if (!map[nick]) {
             map[nick] = {
                 nick, realName: realName || nick, category: category || '-', levelCat: levelCat || '-', levelVal: levelVal,
-                phone: phone || '', services: '', curRev: 0, curTime: 0, 
-                curSettleTime: 0, // [중요] 초기화
+                phone: phone || '', services: '', curRev: 0, curTime: 0, curSettleTime: 0, 
                 curMissed: 0, reviews: 0, answers: 0, satisfaction: 0,
                 coinTotal: 0, coinSuccess: 0, coinFail: 0, phoneTotal: 0, phoneSuccess: 0, phoneFail: 0,
                 memo: memo || ''
@@ -154,13 +146,30 @@ export const aggregateData = (rawData) => {
         
         entry.curTime += parseTime(findVal(row, '접속시간'));
 
-        // [전체정산 시간 누적]
         let settleTimeKey = rowKeys.find(k => { const n = k.replace(/\s+/g, ''); return n.includes('전체정산') && !n.includes('금액'); });
-        const parsedSettle = parseTime(row[settleTimeKey]);
-        entry.curSettleTime += parsedSettle;
+        entry.curSettleTime += parseTime(row[settleTimeKey]);
+
+        // [수정] 서비스 인식 로직 강화 (로그 추가)
+        // 1. 헤더로 찾기 ('제공서비스', '서비스' 등)
+        let srv = findVal(row, '제공서비스', '서비스', '상담서비스');
         
-        if (nick.includes('용단')) {
-           // console.log(`[집계중] ${nick} | 이번행: ${parsedSettle}초 | 누적: ${entry.curSettleTime}초`);
+        // 2. 못 찾았다면, 모든 컬럼 값을 뒤져서 '채팅상담'이나 '전화상담'이 들어있는지 확인 (방어 로직)
+        if (!srv) {
+            const rowValues = Object.values(row);
+            srv = rowValues.find(v => {
+                const s = String(v);
+                return s.includes('채팅상담') || s.includes('전화상담');
+            });
+        }
+
+        const srvStr = String(srv || '');
+        if (srvStr && !entry.services.includes(srvStr)) {
+            entry.services += `, ${srvStr}`;
+        }
+
+        // [디버깅 로그] 처음 3명만 로그 출력
+        if (idx < 3) {
+            console.log(`[서비스체크] ${nick} | 찾은값: "${srvStr}" | 누적: "${entry.services}" | 채팅포함?: ${entry.services.includes('채팅')}`);
         }
 
         const cf = parseNum(findVal(row, '코인콜수 실패'));
@@ -177,22 +186,14 @@ export const aggregateData = (rawData) => {
         
         const sat = parseNum(findVal(row, '만족도', '평점'));
         if (sat > entry.satisfaction) entry.satisfaction = sat;
-
-        const srv = findVal(row, '제공서비스', '서비스') || '';
-        if (srv && !entry.services.includes(srv)) entry.services += `, ${srv}`;
     });
 
     return Object.values(map).map(row => {
         row.unanswered = Math.max(0, row.reviews - row.answers);
-        
         let ln = parseInt(String(row.levelVal || '').replace(/[^0-9]/g, '')) || 0;
-        if (ln === 0 && row.levelCat) {
-             ln = parseInt(String(row.levelCat).replace(/[^0-9]/g, '')) || 0;
-        }
-        
+        if (ln === 0 && row.levelCat) ln = parseInt(String(row.levelCat).replace(/[^0-9]/g, '')) || 0;
         if (row.levelCat.includes('그린')) row.levelCat = '그린';
         else if (row.levelCat.includes('퍼플')) row.levelCat = '퍼플';
-
         row.levelStr = ln > 0 ? `${ln}단계` : (row.levelVal || '0단계');
         row.levelNum = ln;
         return row;
@@ -205,31 +206,23 @@ export const readData = (input, type = 'file') => {
       const ws = wb.Sheets[wb.SheetNames[0]];
       const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
       let headerRowIndex = -1;
-      
       for (let i = 0; i < Math.min(aoa.length, 100); i++) {
         const row = aoa[i];
         if (Array.isArray(row)) {
           const rowStr = row.map(cell => String(cell || '')).join('').replace(/\s+/g, '');
-          if (rowStr.includes('닉네임')) {
-            headerRowIndex = i;
-            break;
-          }
+          if (rowStr.includes('닉네임')) { headerRowIndex = i; break; }
         }
       }
-
       if (headerRowIndex === -1) throw new Error("데이터에서 '닉네임' 열을 찾을 수 없습니다.");
-
       const rawHeaders = aoa[headerRowIndex];
       const uniqueHeaders = [];
       const headerCount = {};
-
       rawHeaders.forEach((h) => {
           let headerName = (h && typeof h === 'string') ? h.trim() : '';
           if (!headerName) { uniqueHeaders.push(`__EMPTY_${uniqueHeaders.length}`); return; }
           if (headerCount[headerName] === undefined) { headerCount[headerName] = 0; uniqueHeaders.push(headerName); } 
           else { headerCount[headerName]++; uniqueHeaders.push(`${headerName}_${headerCount[headerName]}`); }
       });
-
       const rawData = [];
       for (let i = headerRowIndex + 1; i < aoa.length; i++) {
         const row = aoa[i];
@@ -246,15 +239,8 @@ export const readData = (input, type = 'file') => {
       }
       return rawData;
     };
-
-    if (type === 'paste') {
-      try { const wb = XLSX.read(input, { type: 'string' }); resolve(processWorkbook(wb)); } catch (err) { reject(err); }
-    } else {
-      const reader = new FileReader();
-      reader.readAsArrayBuffer(input);
-      reader.onload = (e) => { try { const wb = XLSX.read(e.target.result, { type: 'array' }); resolve(processWorkbook(wb)); } catch (err) { reject(err); } };
-      reader.onerror = (err) => reject(err);
-    }
+    if (type === 'paste') { try { const wb = XLSX.read(input, { type: 'string' }); resolve(processWorkbook(wb)); } catch (err) { reject(err); } } 
+    else { const reader = new FileReader(); reader.readAsArrayBuffer(input); reader.onload = (e) => { try { const wb = XLSX.read(e.target.result, { type: 'array' }); resolve(processWorkbook(wb)); } catch (err) { reject(err); } }; reader.onerror = (err) => reject(err); }
   });
 };
 
@@ -295,12 +281,12 @@ export const processWeeklyAnalysis = (currentRaw, pastRaw = [], historyData = {}
     if (curMissed >= 10) issues.push('C');
     if (unanswered >= 5) issues.push('D');
 
-    const hasChat = String(services).includes('채팅') || String(services).toLowerCase().includes('chat');
+    // [중요] 채팅 가능 여부 판단
+    const hasChat = String(services).includes('채팅');
     const adEligibleTypes = [];
     const isGreen = levelCat.includes('그린');
     const isPurple = levelCat.includes('퍼플');
 
-    // [광고 조건 로직]
     if ((isGreen || isPurple) && levelNum >= 1) {
         let catKey = '기타';
         if (category.includes('타로')) catKey = '타로';
@@ -309,35 +295,20 @@ export const processWeeklyAnalysis = (currentRaw, pastRaw = [], historyData = {}
 
         if (catKey !== '기타') {
             adEligibleTypes.push(`전화(${catKey})`);
-            if (hasChat) adEligibleTypes.push(`채팅(${catKey})`);
-            if (hasChat) adEligibleTypes.push('채팅(메인)');
+            
+            // 채팅이 있으면 채팅 관련 버튼 추가
+            if (hasChat) {
+                adEligibleTypes.push(`채팅(${catKey})`);
+                adEligibleTypes.push('채팅(메인)');
+            }
             
             let canPhoneMain = false;
             const settleHours = curSettleTime / 3600; 
-
-            // 3단계 이상은 무조건 통과
-            if (levelNum >= 3) {
-                canPhoneMain = true; 
-            } 
-            // 1~2단계는 시간 체크
+            if (levelNum >= 3) { canPhoneMain = true; } 
             else if (levelNum >= 1) {
                 const limit = isPurple ? 50 : 30; 
                 if (settleHours >= limit) canPhoneMain = true;
             }
-
-            // [🔍핵심 디버깅 로그] 용단 혹은 모든 사람의 판단 결과를 출력
-            if (nick.includes('용단')) {
-                console.log(
-                    `%c[광고판단] ${nick}`, 'color: green; font-weight: bold;',
-                    `\n- 등급: ${levelCat} ${levelNum}단계`,
-                    `\n- 보라색?: ${isPurple}`,
-                    `\n- 정산시간: ${settleHours.toFixed(1)}시간 (${curSettleTime}초)`,
-                    `\n- 기준시간: ${isPurple ? 50 : 30}시간`,
-                    `\n- 시간조건: ${settleHours} >= ${isPurple ? 50 : 30} ? ${settleHours >= (isPurple ? 50 : 30)}`,
-                    `\n- 최종결과: ${canPhoneMain ? '🟢 가능' : '🔴 불가능'}`
-                );
-            }
-
             if (canPhoneMain) adEligibleTypes.push('전화(메인)');
         }
     }
@@ -369,7 +340,6 @@ export const processWeeklyAnalysis = (currentRaw, pastRaw = [], historyData = {}
   return results;
 };
 
-// ... (processMonthlyAnalysis, processPerformanceReport 등 나머지 함수는 동일하게 유지)
 export const processMonthlyAnalysis = (thisMonth, lastMonth = []) => {
     const basicData = processWeeklyAnalysis(thisMonth, lastMonth);
     return basicData.map(row => {
