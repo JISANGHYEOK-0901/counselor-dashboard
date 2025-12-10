@@ -21,7 +21,6 @@ const SETTLEMENT_RATIOS = {
   '그린6단계': 0.70, '그린5단계': 0.66, '그린4단계': 0.62, '그린3단계': 0.58, '그린2단계': 0.54, '그린1단계': 0.50, '그린0단계': 0.45
 };
 
-// 헬퍼: 데이터 정규화 및 파싱
 const normalize = (val) => String(val || '').replace(/\s+/g, '').trim();
 
 const parseNum = (val) => {
@@ -30,26 +29,40 @@ const parseNum = (val) => {
   return parseFloat(String(val).replace(/[^0-9.-]/g, '')) || 0;
 };
 
+// 시간 파싱 (줄바꿈/공백 완벽 제거)
 const parseTime = (val) => {
   if (!val) return 0;
-  if (typeof val === 'number') return Math.round(val * 24 * 60); 
+  if (typeof val === 'number') return Math.round(val * 24 * 60 * 60);
+  
   const str = String(val).trim();
-  // "58시간 8분 41초" 형식 파싱 지원
-  const h = str.match(/(\d+)\s*시간/);
-  const m = str.match(/(\d+)\s*분/);
-  const s = str.match(/(\d+)\s*초/); // 초 단위 추가 파싱
+  if (!str) return 0;
+
+  const cleanStr = str.replace(/\s/g, ''); // 공백/줄바꿈 제거
+
+  if (cleanStr.includes(':')) {
+    const parts = cleanStr.split(':').map(part => parseFloat(part) || 0);
+    let totalSeconds = 0;
+    if (parts.length === 3) totalSeconds = (parts[0] * 3600) + (parts[1] * 60) + parts[2];
+    else if (parts.length === 2) totalSeconds = (parts[0] * 3600) + (parts[1] * 60);
+    return totalSeconds;
+  }
+
+  const h = cleanStr.match(/(\d+)시간/);
+  const m = cleanStr.match(/(\d+)분/);
+  const s = cleanStr.match(/(\d+)초/);
   
-  let totalSeconds = 0;
-  if (h) totalSeconds += parseInt(h[1]) * 3600;
-  if (m) totalSeconds += parseInt(m[1]) * 60;
-  if (s) totalSeconds += parseInt(s[1]);
-  
-  if (!h && !m && !s) {
-      // 숫자만 있는 경우 분 단위로 가정했던 기존 로직 유지하되 초단위 변환
-      totalSeconds = parseNum(str) * 60; 
+  if (h || m || s) {
+      let totalSeconds = 0;
+      if (h) totalSeconds += parseInt(h[1]) * 3600;
+      if (m) totalSeconds += parseInt(m[1]) * 60;
+      if (s) totalSeconds += parseInt(s[1]);
+      return totalSeconds;
   }
   
-  return totalSeconds; // 초 단위 반환
+  const rawNum = parseNum(cleanStr);
+  if (rawNum > 0) return rawNum * 60;
+
+  return 0;
 };
 
 const findVal = (row, ...candidates) => {
@@ -69,41 +82,18 @@ export const analyzeReasonAndGoal = (timeRate, revRate, hasCur, hasPrev, curTime
 
   let reason = '-';
   let goal = '';
-
-  if (!hasCur && hasPrev) {
-    reason = '블라인드 상담사';
-    goal = '-';
-  } else if (hasCur && !hasPrev) {
-    reason = '신규 상담사';
-    goal = '플랫폼에 대한 이해 필요, 본인의 규칙적인 접속시간 설정 및 포스팅 작성, 공지사항 안내를 통한 고객확보 필요';
-  } else if (hasCur && curTimeSeconds < THIRTY_HOURS_SEC) {
-    reason = '접속은 하였으나 접속시간 매우부족';
-    goal = '접속시간 증가 필요, 규칙적인 접속시간 유지 및 단골 확보하여 매출 높일 수 있도록 목표설정';
-  } else if (Math.abs(timeRate) <= noChangeThreshold && Math.abs(revRate) <= noChangeThreshold) {
-    reason = '접속시간과 상담료 큰 차이없음';
-    goal = '본인의 규칙적인 접속시간을 고정하고 공지하며, 고객 1:1문의, 후기 답변등으로 단골 확보하여 매출 높일 수 있도록 목표 설정';
-  } else if (Math.abs(timeRate) <= noChangeThreshold && revRate > 0) {
-    reason = '접속시간 큰 차이 없으나 매출 증가';
-    goal = '지금과 같이 규칙적인 접속시간 유지 및 단골 확보하여 매출 높일 수 있도록 목표 설정 및 단계 상승을 위해 노력 필요';
-  } else if (Math.abs(timeRate) <= noChangeThreshold && revRate < 0) {
-    reason = '접속시간 큰 차이없으나 매출 하락';
-    goal = '접속시간은 유지하며 후기 작성, 부재중 관리하며 단골을 늘일 수 있도록 목표설정';
-  } else if (Math.abs(revRate) <= noChangeThreshold && timeRate < 0) {
-    reason = '접속시간 하락하였으나 매출 큰 차이 없음';
-    goal = '상담 인입이 줄어드는 추세로 본인의 규칙적인 접속시간 설정 및 포스팅 작성, 공지사항 안내를 통한 단골확보 필요';
-  } else if (revRate > 0 && timeRate > 0) {
-    reason = '접속시간 증가로 인한 매출 증가';
-    goal = '지금과 같이 규칙적인 접속시간 유지 및 단골 확보하여 매출 높일 수 있도록 목표 설정';
-  } else if (revRate > 0 && timeRate < 0) {
-    reason = '접속시간 하락하였으나 매출 증가';
-    goal = '접속시간 증가 필요, 규칙적인 접속시간 유지 및 단골 확보하여 매출 높일 수 있도록 목표 설정';
-  } else if (revRate < 0 && timeRate > 0) {
-    reason = '접속시간 증가하였으나 매출 하락';
-    goal = '지속 접속하기보단 본인만의 규칙적인 접속시간 설정 및 공지가 필요하며 서비스 공지글 업데이트, 포스팅 작성 등을 통한 고객확보 필요';
-  } else if (revRate < 0 && timeRate < 0) {
-    reason = '접속시간 하락으로 인한 매출하락';
-    goal = '접속시간 증가 필요, 서비스 공지글 업데이트, 포스팅 작성 등을 통한 고객확보 필요.';
-  }
+  // (이전 로직 유지)
+  if (!hasCur && hasPrev) { reason = '블라인드 상담사'; goal = '-'; }
+  else if (hasCur && !hasPrev) { reason = '신규 상담사'; goal = '플랫폼에 대한 이해 필요, 본인의 규칙적인 접속시간 설정 및 포스팅 작성, 공지사항 안내를 통한 고객확보 필요'; }
+  else if (hasCur && curTimeSeconds < THIRTY_HOURS_SEC) { reason = '접속은 하였으나 접속시간 매우부족'; goal = '접속시간 증가 필요, 규칙적인 접속시간 유지 및 단골 확보하여 매출 높일 수 있도록 목표설정'; }
+  else if (Math.abs(timeRate) <= noChangeThreshold && Math.abs(revRate) <= noChangeThreshold) { reason = '접속시간과 상담료 큰 차이없음'; goal = '본인의 규칙적인 접속시간을 고정하고 공지하며, 고객 1:1문의, 후기 답변등으로 단골 확보하여 매출 높일 수 있도록 목표 설정'; }
+  else if (Math.abs(timeRate) <= noChangeThreshold && revRate > 0) { reason = '접속시간 큰 차이 없으나 매출 증가'; goal = '지금과 같이 규칙적인 접속시간 유지 및 단골 확보하여 매출 높일 수 있도록 목표 설정 및 단계 상승을 위해 노력 필요'; }
+  else if (Math.abs(timeRate) <= noChangeThreshold && revRate < 0) { reason = '접속시간 큰 차이없으나 매출 하락'; goal = '접속시간은 유지하며 후기 작성, 부재중 관리하며 단골을 늘일 수 있도록 목표설정'; }
+  else if (Math.abs(revRate) <= noChangeThreshold && timeRate < 0) { reason = '접속시간 하락하였으나 매출 큰 차이 없음'; goal = '상담 인입이 줄어드는 추세로 본인의 규칙적인 접속시간 설정 및 포스팅 작성, 공지사항 안내를 통한 단골확보 필요'; }
+  else if (revRate > 0 && timeRate > 0) { reason = '접속시간 증가로 인한 매출 증가'; goal = '지금과 같이 규칙적인 접속시간 유지 및 단골 확보하여 매출 높일 수 있도록 목표 설정'; }
+  else if (revRate > 0 && timeRate < 0) { reason = '접속시간 하락하였으나 매출 증가'; goal = '접속시간 증가 필요, 규칙적인 접속시간 유지 및 단골 확보하여 매출 높일 수 있도록 목표 설정'; }
+  else if (revRate < 0 && timeRate > 0) { reason = '접속시간 증가하였으나 매출 하락'; goal = '지속 접속하기보단 본인만의 규칙적인 접속시간 설정 및 공지가 필요하며 서비스 공지글 업데이트, 포스팅 작성 등을 통한 고객확보 필요'; }
+  else if (revRate < 0 && timeRate < 0) { reason = '접속시간 하락으로 인한 매출하락'; goal = '접속시간 증가 필요, 서비스 공지글 업데이트, 포스팅 작성 등을 통한 고객확보 필요.'; }
 
   return { reason, goal };
 };
@@ -114,6 +104,7 @@ export const analyzeReasonAndGoal = (timeRate, revRate, hasCur, hasPrev, curTime
 
 export const aggregateData = (rawData) => {
     if (!Array.isArray(rawData)) return [];
+    console.log("=== 데이터 집계 시작 ===");
     const map = {};
     let lastMeta = { nick: '', realName: '', category: '-', levelCat: '-', levelVal: '', phone: '' };
     
@@ -145,20 +136,11 @@ export const aggregateData = (rawData) => {
 
         if (!map[nick]) {
             map[nick] = {
-                nick,
-                realName: realName || nick,
-                category: category || '-',
-                levelCat: levelCat || '-',
-                levelVal: levelVal,
-                phone: phone || '',
-                services: '',
-                curRev: 0, 
-                curTime: 0, 
-                curSettleTime: 0, // [NEW] 전체정산(시간) 저장용 변수
-                curMissed: 0, reviews: 0, answers: 0,
-                satisfaction: 0,
-                coinTotal: 0, coinSuccess: 0, coinFail: 0,
-                phoneTotal: 0, phoneSuccess: 0, phoneFail: 0,
+                nick, realName: realName || nick, category: category || '-', levelCat: levelCat || '-', levelVal: levelVal,
+                phone: phone || '', services: '', curRev: 0, curTime: 0, 
+                curSettleTime: 0, // [중요] 초기화
+                curMissed: 0, reviews: 0, answers: 0, satisfaction: 0,
+                coinTotal: 0, coinSuccess: 0, coinFail: 0, phoneTotal: 0, phoneSuccess: 0, phoneFail: 0,
                 memo: memo || ''
             };
         }
@@ -166,29 +148,28 @@ export const aggregateData = (rawData) => {
         const entry = map[nick];
         if (memo && !entry.memo.includes(memo)) entry.memo += ` ${memo}`;
 
-        // 금액
-        entry.curRev += parseNum(findVal(row, '전체정산 금액', '전체정산금액')); 
+        const rowKeys = Object.keys(row);
+        let revKey = rowKeys.find(k => { const n = k.replace(/\s+/g, ''); return n.includes('전체정산') && n.includes('금액'); });
+        entry.curRev += parseNum(revKey ? row[revKey] : findVal(row, '전체정산금액', '전체정산 금액')); 
         
-        // 접속시간
         entry.curTime += parseTime(findVal(row, '접속시간'));
 
-        // [NEW] 전체정산 (시간 데이터)
-        // 원본 엑셀의 '전체정산' 열을 찾아서 시간 형식으로 파싱하여 저장합니다.
-        entry.curSettleTime += parseTime(findVal(row, '전체정산'));
+        // [전체정산 시간 누적]
+        let settleTimeKey = rowKeys.find(k => { const n = k.replace(/\s+/g, ''); return n.includes('전체정산') && !n.includes('금액'); });
+        const parsedSettle = parseTime(row[settleTimeKey]);
+        entry.curSettleTime += parsedSettle;
+        
+        if (nick.includes('용단')) {
+           // console.log(`[집계중] ${nick} | 이번행: ${parsedSettle}초 | 누적: ${entry.curSettleTime}초`);
+        }
 
         const cf = parseNum(findVal(row, '코인콜수 실패'));
         const cs = parseNum(findVal(row, '코인콜수 성공'));
         const pf = parseNum(findVal(row, '060콜수 실패'));
         const ps = parseNum(findVal(row, '060콜수 성공'));
         
-        entry.coinFail += cf;
-        entry.coinSuccess += cs;
-        entry.coinTotal += (cf + cs);
-        
-        entry.phoneFail += pf;
-        entry.phoneSuccess += ps;
-        entry.phoneTotal += (pf + ps);
-
+        entry.coinFail += cf; entry.coinSuccess += cs; entry.coinTotal += (cf + cs);
+        entry.phoneFail += pf; entry.phoneSuccess += ps; entry.phoneTotal += (pf + ps);
         entry.curMissed += (cf + pf);
         
         entry.reviews += parseNum(findVal(row, '후기수'));
@@ -225,7 +206,7 @@ export const readData = (input, type = 'file') => {
       const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
       let headerRowIndex = -1;
       
-      for (let i = 0; i < Math.min(aoa.length, 50); i++) {
+      for (let i = 0; i < Math.min(aoa.length, 100); i++) {
         const row = aoa[i];
         if (Array.isArray(row)) {
           const rowStr = row.map(cell => String(cell || '')).join('').replace(/\s+/g, '');
@@ -236,9 +217,7 @@ export const readData = (input, type = 'file') => {
         }
       }
 
-      if (headerRowIndex === -1) {
-        throw new Error("데이터에서 '닉네임' 열을 찾을 수 없습니다.");
-      }
+      if (headerRowIndex === -1) throw new Error("데이터에서 '닉네임' 열을 찾을 수 없습니다.");
 
       const rawHeaders = aoa[headerRowIndex];
       const uniqueHeaders = [];
@@ -246,19 +225,9 @@ export const readData = (input, type = 'file') => {
 
       rawHeaders.forEach((h) => {
           let headerName = (h && typeof h === 'string') ? h.trim() : '';
-          
-          if (!headerName) {
-              uniqueHeaders.push(`__EMPTY_${uniqueHeaders.length}`);
-              return;
-          }
-
-          if (headerCount[headerName] === undefined) {
-              headerCount[headerName] = 0;
-              uniqueHeaders.push(headerName);
-          } else {
-              headerCount[headerName]++;
-              uniqueHeaders.push(`${headerName}_${headerCount[headerName]}`);
-          }
+          if (!headerName) { uniqueHeaders.push(`__EMPTY_${uniqueHeaders.length}`); return; }
+          if (headerCount[headerName] === undefined) { headerCount[headerName] = 0; uniqueHeaders.push(headerName); } 
+          else { headerCount[headerName]++; uniqueHeaders.push(`${headerName}_${headerCount[headerName]}`); }
       });
 
       const rawData = [];
@@ -266,7 +235,6 @@ export const readData = (input, type = 'file') => {
         const row = aoa[i];
         const obj = {};
         let hasData = false;
-        
         uniqueHeaders.forEach((headerName, colIndex) => {
           if (!headerName.startsWith('__EMPTY')) {
             const val = row[colIndex];
@@ -274,26 +242,17 @@ export const readData = (input, type = 'file') => {
             if (val !== undefined && val !== '' && val !== null) hasData = true;
           }
         });
-
         if (hasData) rawData.push(obj);
       }
       return rawData;
     };
 
     if (type === 'paste') {
-      try {
-        const wb = XLSX.read(input, { type: 'string' });
-        resolve(processWorkbook(wb));
-      } catch (err) { reject(err); }
+      try { const wb = XLSX.read(input, { type: 'string' }); resolve(processWorkbook(wb)); } catch (err) { reject(err); }
     } else {
       const reader = new FileReader();
       reader.readAsArrayBuffer(input);
-      reader.onload = (e) => {
-        try {
-          const wb = XLSX.read(e.target.result, { type: 'array' });
-          resolve(processWorkbook(wb));
-        } catch (err) { reject(err); }
-      };
+      reader.onload = (e) => { try { const wb = XLSX.read(e.target.result, { type: 'array' }); resolve(processWorkbook(wb)); } catch (err) { reject(err); } };
       reader.onerror = (err) => reject(err);
     }
   });
@@ -316,25 +275,17 @@ export const processWeeklyAnalysis = (currentRaw, pastRaw = [], historyData = {}
     let remarks = [];
     let isNew = false;
 
-    if (realName && pastByRealName[realName]) {
-        prevRow = pastByRealName[realName];
-        if (prevRow.nick !== nick) remarks.push(`활동명변경(${prevRow.nick} > ${nick})`);
-    } else if (pastByNick[nick]) {
-        prevRow = pastByNick[nick];
-    } else {
-        isNew = true;
-        remarks.push(`신규상담사(${category}_${realName}_${nick}, ${phone})`);
-    }
+    if (realName && pastByRealName[realName]) { prevRow = pastByRealName[realName]; if (prevRow.nick !== nick) remarks.push(`활동명변경(${prevRow.nick} > ${nick})`); } 
+    else if (pastByNick[nick]) { prevRow = pastByNick[nick]; } 
+    else { isNew = true; remarks.push(`신규상담사(${category}_${realName}_${nick}, ${phone})`); }
 
     const prevRev = prevRow ? prevRow.curRev : 0;
     const prevTime = prevRow ? prevRow.curTime : 0;
     const revDelta = curRev - prevRev;
     const timeDelta = curTime - prevTime;
-    
     const calcRate = (c, p) => p === 0 ? (c > 0 ? 1 : 0) : ((c - p) / p);
     const revRate = prevRow ? calcRate(curRev, prevRev) : 0;
     const timeRate = prevRow ? calcRate(curTime, prevTime) : 0;
-
     const analysis = analyzeReasonAndGoal(timeRate, revRate, true, !!prevRow, curTime);
     if (isNew) { analysis.reason = '신규 상담사'; }
 
@@ -349,6 +300,7 @@ export const processWeeklyAnalysis = (currentRaw, pastRaw = [], historyData = {}
     const isGreen = levelCat.includes('그린');
     const isPurple = levelCat.includes('퍼플');
 
+    // [광고 조건 로직]
     if ((isGreen || isPurple) && levelNum >= 1) {
         let catKey = '기타';
         if (category.includes('타로')) catKey = '타로';
@@ -361,34 +313,43 @@ export const processWeeklyAnalysis = (currentRaw, pastRaw = [], historyData = {}
             if (hasChat) adEligibleTypes.push('채팅(메인)');
             
             let canPhoneMain = false;
-            const hours = curTime / 3600; 
+            const settleHours = curSettleTime / 3600; 
+
+            // 3단계 이상은 무조건 통과
             if (levelNum >= 3) {
                 canPhoneMain = true; 
-            } else {
-                const limit = isPurple ? 60 : 30; 
-                if (hours >= limit) canPhoneMain = true;
+            } 
+            // 1~2단계는 시간 체크
+            else if (levelNum >= 1) {
+                const limit = isPurple ? 50 : 30; 
+                if (settleHours >= limit) canPhoneMain = true;
             }
+
+            // [🔍핵심 디버깅 로그] 용단 혹은 모든 사람의 판단 결과를 출력
+            if (nick.includes('용단')) {
+                console.log(
+                    `%c[광고판단] ${nick}`, 'color: green; font-weight: bold;',
+                    `\n- 등급: ${levelCat} ${levelNum}단계`,
+                    `\n- 보라색?: ${isPurple}`,
+                    `\n- 정산시간: ${settleHours.toFixed(1)}시간 (${curSettleTime}초)`,
+                    `\n- 기준시간: ${isPurple ? 50 : 30}시간`,
+                    `\n- 시간조건: ${settleHours} >= ${isPurple ? 50 : 30} ? ${settleHours >= (isPurple ? 50 : 30)}`,
+                    `\n- 최종결과: ${canPhoneMain ? '🟢 가능' : '🔴 불가능'}`
+                );
+            }
+
             if (canPhoneMain) adEligibleTypes.push('전화(메인)');
         }
     }
 
     return {
       nick, realName, category, levelCat, level: levelStr, levelNum,
-      curRev, prevRev, revDelta, revRate,
-      curTime, prevTime, timeDelta, timeRate,
-      curSettleTime: curSettleTime, // [NEW] 결과에 포함
-      unanswered, curMissed,
-      reviews: row.reviews,
-      answers: row.answers,
-      satisfaction: row.satisfaction,
-      coinTotal: row.coinTotal, coinSuccess: row.coinSuccess, coinFail: row.coinFail,
+      curRev, prevRev, revDelta, revRate, curTime, prevTime, timeDelta, timeRate,
+      curSettleTime, unanswered, curMissed, reviews: row.reviews, answers: row.answers,
+      satisfaction: row.satisfaction, coinTotal: row.coinTotal, coinSuccess: row.coinSuccess, coinFail: row.coinFail,
       phoneTotal: row.phoneTotal, phoneSuccess: row.phoneSuccess, phoneFail: row.phoneFail,
-      memo: row.memo,
-      remarks: remarks.join(', ') || '-',
-      issues, adEligibleTypes,
-      status: isNew ? 'new' : 'existing',
-      reason: analysis.reason,
-      goal: analysis.goal
+      memo: row.memo, remarks: remarks.join(', ') || '-', issues, adEligibleTypes,
+      status: isNew ? 'new' : 'existing', reason: analysis.reason, goal: analysis.goal
     };
   }).filter(r => r !== null);
 
@@ -398,90 +359,52 @@ export const processWeeklyAnalysis = (currentRaw, pastRaw = [], historyData = {}
       if (!currentRealNames.has(row.realName) && !isRenamed) {
           results.push({
               nick: row.nick, realName: row.realName, category: row.category, levelCat: row.levelCat, level: row.levelStr, levelNum: row.levelNum,
-              curRev: 0, prevRev: row.curRev, revDelta: 0 - row.curRev, revRate: -1,
-              curTime: 0, prevTime: row.curTime, timeDelta: 0 - row.curTime, timeRate: -1,
-              curSettleTime: 0,
+              curRev: 0, prevRev: row.curRev, revDelta: 0 - row.curRev, revRate: -1, curTime: 0, prevTime: row.curTime, timeDelta: 0 - row.curTime, timeRate: -1, curSettleTime: 0,
               unanswered: 0, curMissed: 0, remarks: '블라인드 상담사', issues: [], adEligibleTypes: [], status: 'blind',
-              reviews: 0, answers: 0, satisfaction: 0, 
-              coinTotal:0, coinSuccess:0, coinFail:0, phoneTotal:0, phoneSuccess:0, phoneFail:0,
-              memo: row.memo,
-              reason: '블라인드 상담사',
-              goal: '-'
+              reviews: 0, answers: 0, satisfaction: 0, coinTotal:0, coinSuccess:0, coinFail:0, phoneTotal:0, phoneSuccess:0, phoneFail:0,
+              memo: row.memo, reason: '블라인드 상담사', goal: '-'
           });
       }
   });
-
   return results;
 };
 
+// ... (processMonthlyAnalysis, processPerformanceReport 등 나머지 함수는 동일하게 유지)
 export const processMonthlyAnalysis = (thisMonth, lastMonth = []) => {
     const basicData = processWeeklyAnalysis(thisMonth, lastMonth);
     return basicData.map(row => {
         const issues = [];
         if (row.curMissed >= 10) issues.push('C(월간부재)'); 
         if (row.curTime < 60 * 60) issues.push('시간미달'); 
-
         let promotionStatus = '-';
         const nextLevelNum = row.levelNum + 1;
         const cleanLevelCat = row.levelCat.includes('퍼플') ? '퍼플' : '그린';
         const currentFullLevel = `${cleanLevelCat}${row.levelNum}단계`; 
         const nextFullLevel = `${cleanLevelCat}${nextLevelNum}단계`; 
-
         const ratio = SETTLEMENT_RATIOS[currentFullLevel] || 0.45;
         const mySettleAmount = Math.floor(row.curRev * ratio); 
-
         if (LEVEL_STANDARDS[nextFullLevel]) {
             const { revenue: targetRev, months: targetMonths } = LEVEL_STANDARDS[nextFullLevel];
             if (mySettleAmount >= targetRev) {
-                if (targetMonths === 1) {
-                    promotionStatus = `🚀 승급가능 (${nextFullLevel})`;
-                } else {
-                    promotionStatus = `⏳ 1달 달성 (필요:${targetMonths}개월)`;
-                }
-            } else {
-                promotionStatus = `-${((targetRev - mySettleAmount)/10000).toFixed(0)}만 부족`;
-            }
-        } else if (row.levelNum >= 6) {
-            promotionStatus = '👑 최고단계';
-        }
+                if (targetMonths === 1) promotionStatus = `🚀 승급가능 (${nextFullLevel})`;
+                else promotionStatus = `⏳ 1달 달성 (필요:${targetMonths}개월)`;
+            } else promotionStatus = `-${((targetRev - mySettleAmount)/10000).toFixed(0)}만 부족`;
+        } else if (row.levelNum >= 6) promotionStatus = '👑 최고단계';
         return { ...row, issues, promotionStatus, mySettle: mySettleAmount };
     });
 };
-
-export const processPerformanceReport = (currentRaw, pastRaw) => {
-    return processWeeklyAnalysis(currentRaw, pastRaw);
-};
-
+export const processPerformanceReport = (currentRaw, pastRaw) => processWeeklyAnalysis(currentRaw, pastRaw);
 export const processRevenueSummary = (thisMonthRaw, lastMonthRaw) => {
     const analyzedCurrent = processWeeklyAnalysis(thisMonthRaw, lastMonthRaw);
-    
-    const blindList = analyzedCurrent.filter(r => r.status === 'blind').map(r => ({
-        nick: r.nick,
-        info: `블라인드상담사(${r.category}_${r.realName}_${r.nick}, ${r.levelCat} ${r.level})`,
-        prevRev: r.prevRev
-    }));
-
-    const newList = analyzedCurrent.filter(r => r.status === 'new').map(r => ({
-        nick: r.nick,
-        info: r.remarks, 
-        curRev: r.curRev
-    }));
-
+    const blindList = analyzedCurrent.filter(r => r.status === 'blind').map(r => ({ nick: r.nick, info: `블라인드상담사(${r.category}_${r.realName}_${r.nick}, ${r.levelCat} ${r.level})`, prevRev: r.prevRev }));
+    const newList = analyzedCurrent.filter(r => r.status === 'new').map(r => ({ nick: r.nick, info: r.remarks, curRev: r.curRev }));
     const activeMembers = analyzedCurrent.filter(r => r.status !== 'blind');
     const totalRevThis = activeMembers.reduce((acc, r) => acc + r.curRev, 0);
-    
     const lastMonthAgg = aggregateData(lastMonthRaw);
     const totalRevLast = lastMonthAgg.reduce((acc, r) => acc + r.curRev, 0);
-    
     const growth = totalRevLast > 0 ? ((totalRevThis - totalRevLast) / totalRevLast) * 100 : 0;
-
     const existingCount = lastMonthAgg.length; 
     const newCount = analyzedCurrent.filter(r => r.status === 'new').length;
     const blindCount = blindList.length;
-
-    return {
-        totalRevThis, totalRevLast, growth,
-        existingCount, newCount, blindCount, 
-        blindList, newList, analyzedCurrent
-    };
+    return { totalRevThis, totalRevLast, growth, existingCount, newCount, blindCount, blindList, newList, analyzedCurrent };
 };
