@@ -1,9 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react'; // useMemo 추가
+import React, { useState, useEffect, useMemo } from 'react';
 import { RefreshCw, TrendingUp, Trash2, ArrowRightCircle, X, Download, Moon, Sun } from 'lucide-react';
 import { readData, processWeeklyAnalysis, processPerformanceReport, processRevenueSummary } from './utils/dataProcessor';
 import { generateMonthlyReportExcel } from './utils/excelGenerator';
 
-// 분리된 컴포넌트 임포트
 import UploadBox from "./components/UploadBox";
 import DashboardView from "./components/DashboardView";
 import AdManager from "./components/AdManager";
@@ -12,7 +11,6 @@ import PerformanceReportTable from "./components/PerformanceReportTable";
 import EmptyState from "./components/EmptyState";
 import WorkLogPage from "./components/WorkLogPage"; 
 
-// 🌑 [초강력 다크모드 스타일] 
 const GlobalDarkStyle = () => (
   <style>{`
     .dark body, .dark .min-h-screen { background-color: #111827 !important; color: #f3f4f6 !important; }
@@ -40,6 +38,9 @@ function App() {
   const [persistedData, setPersistedData] = useState(() => JSON.parse(localStorage.getItem('dashboardData')) || { weekly: null, monthly: null, report: null, revSummary: null });
   const [tempFiles, setTempFiles] = useState(() => JSON.parse(localStorage.getItem('rawDataStorage')) || { lastWeek: null, thisWeek: null, lastMonth: null, thisMonth: null });
   
+  // 광고 관리 전용 개별 데이터
+  const [manualAdData, setManualAdData] = useState(() => JSON.parse(localStorage.getItem('manualAdData')) || null);
+
   const [activeTab, setActiveTab] = useState('weekly');
   const [memo, setMemo] = useState(() => JSON.parse(localStorage.getItem('dashboardMemo')) || {});
   const [adHistory, setAdHistory] = useState(() => JSON.parse(localStorage.getItem('adHistory')) || {});
@@ -54,6 +55,7 @@ function App() {
   useEffect(() => localStorage.setItem('adHistory', JSON.stringify(adHistory)), [adHistory]);
   useEffect(() => localStorage.setItem('rawDataStorage', JSON.stringify(tempFiles)), [tempFiles]);
   useEffect(() => localStorage.setItem('workLogs', JSON.stringify(workLogs)), [workLogs]);
+  useEffect(() => localStorage.setItem('manualAdData', JSON.stringify(manualAdData)), [manualAdData]);
 
   useEffect(() => {
     const savedTheme = localStorage.getItem('theme');
@@ -76,10 +78,22 @@ function App() {
     if (file) {
       try {
         const d = await readData(file, 'file');
-        setTempFiles(p => ({ ...p, [key]: { data: d, name: file.name } }));
+        if (key === 'manualAd') {
+            const processed = processWeeklyAnalysis(d, []); 
+            setManualAdData({ data: processed, name: file.name });
+            alert("개별 상담사 명단이 추가되었습니다.");
+        } else {
+            setTempFiles(p => ({ ...p, [key]: { data: d, name: file.name } }));
+        }
       } catch (err) { alert("오류: " + err.message); }
       e.target.value = null;
     }
+  };
+
+  const resetManualAdData = () => {
+      if(confirm('개별 추가된 상담사 데이터를 초기화하시겠습니까?')) {
+          setManualAdData(null);
+      }
   };
 
   const handlePaste = async (text) => {
@@ -101,7 +115,7 @@ function App() {
 
   const moveThisMonthToLast = () => {
       if(!tempFiles.thisMonth) return alert("이동할 '이번달' 데이터가 없습니다.");
-      if(!confirm("이번달 데이터를 지난달로 이동하시겠습니까? (이전 지난달 데이터는 덮어씌워집니다)")) return;
+      if(!confirm("이번달 데이터를 지난달로 이동하시겠습니까?")) return;
       setTempFiles(prev => ({ ...prev, lastMonth: prev.thisMonth, thisMonth: null }));
       alert("이동 완료!");
   };
@@ -111,6 +125,7 @@ function App() {
       localStorage.clear();
       setPersistedData({ weekly: null, monthly: null, report: null, revSummary: null });
       setTempFiles({ lastWeek: null, thisWeek: null, lastMonth: null, thisMonth: null });
+      setManualAdData(null); 
       setMemo({}); setAdHistory({}); setWorkLogs({ remarks: [], recruitments: [], interviews: [] });
       alert("초기화되었습니다.");
   };
@@ -133,48 +148,45 @@ function App() {
   };
 
   const handleDownloadReport = () => {
-      if (!tempFiles.thisMonth || !tempFiles.lastMonth) return alert("월말 정산 리포트를 생성하려면 '이번달'과 '지난달' 데이터가 모두 필요합니다.");
+      if (!tempFiles.thisMonth || !tempFiles.lastMonth) return alert("월말 정산 리포트 생성에는 '이번달'과 '지난달' 데이터가 필요합니다.");
       try {
           const processedCurrent = processWeeklyAnalysis(tempFiles.thisMonth.data, tempFiles.lastMonth.data);
           const processedPast = processWeeklyAnalysis(tempFiles.lastMonth.data, []);
           generateMonthlyReportExcel(processedCurrent, processedPast, targetMonth, memo, workLogs);
           alert("엑셀 파일 다운로드가 시작되었습니다.");
-      } catch (e) { console.error(e); alert("다운로드 중 오류 발생: " + e.message); }
+      } catch (e) { console.error(e); alert("다운로드 오류: " + e.message); }
   };
 
-  // [핵심 로직 추가] 주간/월간 데이터를 합쳐서 광고 가능 여부를 판단하는 데이터 생성
+  // 데이터 병합 (주간/월간 + 개별)
   const mergedAdData = useMemo(() => {
       const weekly = persistedData.weekly || [];
       const monthly = persistedData.monthly || [];
+      const manual = manualAdData?.data || []; 
 
-      // 1. 둘 다 없으면 빈 배열
-      if (weekly.length === 0 && monthly.length === 0) return null;
+      let combined = [];
       
-      // 2. 하나만 있으면 그거 반환
-      if (weekly.length === 0) return monthly;
-      if (monthly.length === 0) return weekly;
+      if (weekly.length === 0 && monthly.length === 0) {
+          combined = [];
+      } else if (weekly.length === 0) {
+          combined = monthly;
+      } else if (monthly.length === 0) {
+          combined = weekly;
+      } else {
+          const monthlyMap = new Map(monthly.map(item => [item.nick, item]));
+          combined = weekly.map(wItem => {
+              const mItem = monthlyMap.get(wItem.nick);
+              if (mItem) {
+                  const unionTypes = new Set([...wItem.adEligibleTypes, ...mItem.adEligibleTypes]);
+                  return { ...wItem, adEligibleTypes: Array.from(unionTypes) };
+              }
+              return wItem;
+          });
+      }
 
-      // 3. 둘 다 있으면 합치기 (Weekly를 기준으로 Monthly의 광고 권한을 가져옴)
-      // (월간 데이터 빠른 검색을 위해 Map 생성)
-      const monthlyMap = new Map(monthly.map(item => [item.nick, item]));
+      const manualMarked = manual.map(item => ({ ...item, isManual: true }));
+      return [...manualMarked, ...combined];
 
-      return weekly.map(wItem => {
-          const mItem = monthlyMap.get(wItem.nick);
-          
-          // 월간 데이터에 해당 상담사가 있으면 권한 합치기
-          if (mItem) {
-              // Set을 이용해 중복 제거하며 합집합 생성 (예: 주간엔 없어도 월간에 '전화(메인)'이 있으면 포함됨)
-              const unionTypes = new Set([...wItem.adEligibleTypes, ...mItem.adEligibleTypes]);
-              return {
-                  ...wItem,
-                  adEligibleTypes: Array.from(unionTypes)
-              };
-          }
-          
-          return wItem;
-      });
-  }, [persistedData.weekly, persistedData.monthly]);
-
+  }, [persistedData.weekly, persistedData.monthly, manualAdData]);
 
   const TABS = [
     { id: 'weekly', label: '📊 주간 대시보드' },
@@ -192,7 +204,7 @@ function App() {
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
               <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-xl w-[600px] border dark:border-gray-700">
                   <div className="flex justify-between mb-4"><h3 className="font-bold text-lg">데이터 붙여넣기</h3><button onClick={()=>setPasteModal({open:false, target:''})}><X/></button></div>
-                  <textarea id="pasteArea" className="w-full h-64 border dark:border-gray-600 p-2 text-xs mb-4 bg-gray-50 dark:bg-gray-700 rounded outline-none" placeholder="구글 시트에서 복사(Ctrl+C) 후 붙여넣기(Ctrl+V)"></textarea>
+                  <textarea id="pasteArea" className="w-full h-64 border dark:border-gray-600 p-2 text-xs mb-4 bg-gray-50 dark:bg-gray-700 rounded outline-none" placeholder="복사(Ctrl+C) 후 붙여넣기(Ctrl+V)"></textarea>
                   <button onClick={()=>handlePaste(document.getElementById('pasteArea').value)} className="w-full bg-indigo-600 dark:bg-indigo-700 text-white py-3 rounded font-bold hover:bg-indigo-700 transition">입력하기</button>
               </div>
           </div>
@@ -211,31 +223,28 @@ function App() {
             </div>
           </div>
 
-          {activeTab !== 'ad' && activeTab !== 'worklog' && (
+          {activeTab === 'weekly' && (
               <div className="flex gap-4 items-stretch">
-                {activeTab === 'weekly' ? (
-                    <>
-                        <UploadBox label="1. 지난주 (선택)" fileData={tempFiles.lastWeek} onUpload={(e)=>handleUpload(e, 'lastWeek')} onPaste={()=>setPasteModal({open:true, target:'lastWeek'})} />
-                        <div className="flex flex-col justify-center items-center px-2"><button onClick={moveThisToLast} className="text-gray-400 dark:text-gray-500 hover:text-indigo-600 transition"><ArrowRightCircle size={24} /></button></div>
-                        <UploadBox label="2. 이번주 (필수)" fileData={tempFiles.thisWeek} onUpload={(e)=>handleUpload(e, 'thisWeek')} onPaste={()=>setPasteModal({open:true, target:'thisWeek'})} color="blue" />
-                    </>
-                ) : (
-                    <>
-                        <UploadBox label="1. 비교 데이터 (과거)" fileData={tempFiles.lastMonth} onUpload={(e)=>handleUpload(e, 'lastMonth')} onPaste={()=>setPasteModal({open:true, target:'lastMonth'})} />
-                        <div className="flex flex-col justify-center items-center px-2"><button onClick={moveThisMonthToLast} className="text-gray-400 dark:text-gray-500 hover:text-indigo-600 transition"><ArrowRightCircle size={24} /></button></div>
-                        <UploadBox label="2. 기준 데이터 (최신)" fileData={tempFiles.thisMonth} onUpload={(e)=>handleUpload(e, 'thisMonth')} onPaste={()=>setPasteModal({open:true, target:'thisMonth'})} color="purple" />
-                    </>
-                )}
+                <UploadBox label="1. 지난주 (선택)" fileData={tempFiles.lastWeek} onUpload={(e)=>handleUpload(e, 'lastWeek')} onPaste={()=>setPasteModal({open:true, target:'lastWeek'})} />
+                <div className="flex flex-col justify-center items-center px-2"><button onClick={moveThisToLast} className="text-gray-400 dark:text-gray-500 hover:text-indigo-600 transition"><ArrowRightCircle size={24} /></button></div>
+                <UploadBox label="2. 이번주 (필수)" fileData={tempFiles.thisWeek} onUpload={(e)=>handleUpload(e, 'thisWeek')} onPaste={()=>setPasteModal({open:true, target:'thisWeek'})} color="blue" />
+                <div className="flex flex-col gap-2 flex-1 min-w-[200px] justify-center"><button onClick={runAnalysis} className="bg-indigo-600 dark:bg-indigo-700 text-white rounded-lg py-4 hover:bg-indigo-700 dark:hover:bg-indigo-600 font-bold flex items-center justify-center gap-2 transition shadow-md w-full"><RefreshCw size={20} className="animate-spin-slow" /> <span>분석 실행</span></button></div>
+              </div>
+          )}
+
+          {activeTab === 'monthly' && (
+              <div className="flex gap-4 items-stretch">
+                <UploadBox label="1. 비교 데이터 (과거)" fileData={tempFiles.lastMonth} onUpload={(e)=>handleUpload(e, 'lastMonth')} onPaste={()=>setPasteModal({open:true, target:'lastMonth'})} />
+                <div className="flex flex-col justify-center items-center px-2"><button onClick={moveThisMonthToLast} className="text-gray-400 dark:text-gray-500 hover:text-indigo-600 transition"><ArrowRightCircle size={24} /></button></div>
+                <UploadBox label="2. 기준 데이터 (최신)" fileData={tempFiles.thisMonth} onUpload={(e)=>handleUpload(e, 'thisMonth')} onPaste={()=>setPasteModal({open:true, target:'thisMonth'})} color="purple" />
                 <div className="flex flex-col gap-2 flex-1 min-w-[200px]">
                     <button onClick={runAnalysis} className="flex-1 bg-indigo-600 dark:bg-indigo-700 text-white rounded-lg hover:bg-indigo-700 dark:hover:bg-indigo-600 font-bold flex items-center justify-center gap-2 transition shadow-md w-full"><RefreshCw size={20} className="animate-spin-slow" /> <span>분석 실행</span></button>
-                    {activeTab === 'monthly' && (
-                        <div className="flex items-center gap-2 bg-green-50 dark:bg-green-900/20 p-2 rounded-lg border border-green-100 dark:border-green-800">
-                           <div className="flex items-center gap-1 bg-white dark:bg-gray-700 rounded px-2 py-1 border border-green-200 dark:border-green-700">
-                             <input type="number" min="1" max="12" className="w-10 text-center font-bold outline-none text-green-700 dark:text-green-400 bg-transparent" value={targetMonth} onChange={(e) => setTargetMonth(parseInt(e.target.value) || '')}/><span className="text-xs font-bold text-green-700 dark:text-green-400">월</span>
-                           </div>
-                           <button onClick={handleDownloadReport} className="flex-1 bg-green-600 dark:bg-green-700 text-white rounded-md py-2 hover:bg-green-700 font-bold flex items-center justify-center gap-2 transition shadow-sm text-sm"><Download size={16} /> <span>다운로드</span></button>
+                    <div className="flex items-center gap-2 bg-green-50 dark:bg-green-900/20 p-2 rounded-lg border border-green-100 dark:border-green-800">
+                        <div className="flex items-center gap-1 bg-white dark:bg-gray-700 rounded px-2 py-1 border border-green-200 dark:border-green-700">
+                            <input type="number" min="1" max="12" className="w-10 text-center font-bold outline-none text-green-700 dark:text-green-400 bg-transparent" value={targetMonth} onChange={(e) => setTargetMonth(parseInt(e.target.value) || '')}/><span className="text-xs font-bold text-green-700 dark:text-green-400">월</span>
                         </div>
-                    )}
+                        <button onClick={handleDownloadReport} className="flex-1 bg-green-600 dark:bg-green-700 text-white rounded-md py-2 hover:bg-green-700 font-bold flex items-center justify-center gap-2 transition shadow-sm text-sm"><Download size={16} /> <span>다운로드</span></button>
+                    </div>
                 </div>
               </div>
           )}
@@ -247,8 +256,17 @@ function App() {
           {activeTab === 'weekly' && (persistedData.weekly ? <DashboardView data={persistedData.weekly} memo={memo} setMemo={setMemo} isDark={isDark} /> : <EmptyState />)}
           {activeTab === 'monthly' && (persistedData.monthly ? <DashboardView data={persistedData.monthly} memo={memo} setMemo={setMemo} isMonthly isDark={isDark} /> : <EmptyState type="monthly" />)}
           
-          {/* [수정] mergedAdData를 사용하여 주간/월간 중 하나라도 자격이 되면 광고 버튼 노출 */}
-          {activeTab === 'ad' && (mergedAdData ? <AdManager data={mergedAdData} history={adHistory} setHistory={setAdHistory} /> : <EmptyState />)}
+          {/* AdManager에 개별 파일 관리 기능 Props 전달 */}
+          {activeTab === 'ad' && (
+              <AdManager 
+                data={mergedAdData || []} // 데이터 없어도 빈 배열로 렌더링 (내부에서 처리)
+                history={adHistory} 
+                setHistory={setAdHistory}
+                manualAdData={manualAdData}
+                onUploadManual={(e)=>handleUpload(e, 'manualAd')}
+                onResetManual={resetManualAdData}
+              />
+          )}
           
           {activeTab === 'revenue' && (persistedData.revSummary ? <RevenuePage summary={persistedData.revSummary} memo={memo} setMemo={setMemo} /> : <EmptyState type="monthly" />)}
           {activeTab === 'report' && (persistedData.report ? <PerformanceReportTable data={persistedData.report} /> : <EmptyState type="monthly" />)}

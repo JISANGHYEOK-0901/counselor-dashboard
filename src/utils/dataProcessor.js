@@ -167,10 +167,7 @@ export const aggregateData = (rawData) => {
             entry.services += `, ${srvStr}`;
         }
 
-        // [디버깅 로그] 처음 3명만 로그 출력
-        if (idx < 3) {
-            console.log(`[서비스체크] ${nick} | 찾은값: "${srvStr}" | 누적: "${entry.services}" | 채팅포함?: ${entry.services.includes('채팅')}`);
-        }
+        
 
         const cf = parseNum(findVal(row, '코인콜수 실패'));
         const cs = parseNum(findVal(row, '코인콜수 성공'));
