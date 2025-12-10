@@ -369,81 +369,170 @@ export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, target
   XLSX.utils.book_append_sheet(wb, ws4, "전체매출");
 
   // ------------------------------------------------------------------
-  // Sheet 5: 기타 (복잡한 레이아웃 + WorkLog 연동 + 줄바꿈 수정 적용)
+  // Sheet 5: 기타 (동적 위치 계산 적용)
   // ------------------------------------------------------------------
   const ws5 = XLSX.utils.aoa_to_sheet([]);
   
+  // 데이터 가져오기
+  const recruitData = workLogs?.recruitments || [];
+  const interviewData = workLogs?.interviews || [];
+
+  // =================================================================
+  // [1] 위치 계산 로직 (핵심)
+  // =================================================================
+  
+  // 1. 섭외 건수 시작 행 (고정) : 4행 (Index 3)
+  const recruitStartRowIdx = 3; 
+  
+  // 2. 섭외 건수 테이블의 높이 계산
+  // 데이터가 없어도 최소 20줄은 확보해서 포맷 유지 (원하시면 숫자를 줄이거나 recruitData.length로만 하셔도 됩니다)
+  const recruitHeight = Math.max(recruitData.length, 20); 
+  
+  // 3. 섭외 건수 끝나는 행 Index
+  const recruitEndRowIdx = recruitStartRowIdx + recruitHeight;
+
+  // 4. 면접 건수 시작 행 Index (섭외 끝 + 4칸 공백)
+  // 예: 데이터가 20개면 24행에서 끝남 -> 면접은 28행(Index 27)부터 시작
+  const interviewHeaderRowIdx = recruitEndRowIdx + 4; 
+  const interviewStartRowIdx = interviewHeaderRowIdx + 2; // 데이터는 헤더 2칸 밑
+
+  // 5. 면접 건수 테이블 높이 계산
+  const interviewHeight = Math.max(interviewData.length, 10);
+  const interviewEndRowIdx = interviewStartRowIdx + interviewHeight;
+
+
+  // =================================================================
+  // [2] 상단 고정 영역 (특이사항, 섭외 건수 헤더)
+  // =================================================================
+  
+  // 특이사항 헤더
   XLSX.utils.sheet_add_aoa(ws5, [['상담사 특이사항', '','','']], {origin: "B2"});
+  XLSX.utils.sheet_add_aoa(ws5, [['분야', '단계', '상담사명', '특이사항']], {origin: "B3"});
+
+  // 섭외 건수 헤더
   XLSX.utils.sheet_add_aoa(ws5, [['섭외 건수', '','','']], {origin: "G2"});
   XLSX.utils.sheet_add_aoa(ws5, [['섭외 총 건수', '','']], {origin: "L2"});
-  XLSX.utils.sheet_add_aoa(ws5, [['면접 건수', '','','']], {origin: "P2"});
-  XLSX.utils.sheet_add_aoa(ws5, [['면접 총 건수', '','']], {origin: "U2"});
-
-  XLSX.utils.sheet_add_aoa(ws5, [['분야', '단계', '상담사명', '특이사항']], {origin: "B3"});
+  
   XLSX.utils.sheet_add_aoa(ws5, [['분야', '상담사명', '연락방식', '섭외진행상태']], {origin: "G3"});
   XLSX.utils.sheet_add_aoa(ws5, [['거절', '완료', 'TTL']], {origin: "L3"});
-  XLSX.utils.sheet_add_aoa(ws5, [['분야', '상담사명', '결과', '비고']], {origin: "P3"});
-  XLSX.utils.sheet_add_aoa(ws5, [['합격', '불합격', 'TTL']], {origin: "U3"});
 
-  // 헤더 스타일
+
+  // =================================================================
+  // [3] 하단 동적 영역 (면접 건수 헤더)
+  // =================================================================
+  
+  // 계산된 interviewHeaderRowIdx 위치에 헤더 삽입
+  // 엑셀 주소 변환 (예: Row Index 27 -> "G28")
+  const addrRecruitTitle = XLSX.utils.encode_cell({r: interviewHeaderRowIdx, c: 6}); // G열
+  const addrRecruitStatTitle = XLSX.utils.encode_cell({r: interviewHeaderRowIdx, c: 11}); // L열
+  
+  const addrRecruitHead = XLSX.utils.encode_cell({r: interviewHeaderRowIdx + 1, c: 6});
+  const addrRecruitStatHead = XLSX.utils.encode_cell({r: interviewHeaderRowIdx + 1, c: 11});
+
+  XLSX.utils.sheet_add_aoa(ws5, [['면접 건수', '','','']], {origin: addrRecruitTitle});
+  XLSX.utils.sheet_add_aoa(ws5, [['면접 총 건수', '','']], {origin: addrRecruitStatTitle});
+
+  XLSX.utils.sheet_add_aoa(ws5, [['분야', '상담사명', '결과', '비고']], {origin: addrRecruitHead});
+  XLSX.utils.sheet_add_aoa(ws5, [['합격', '불합격', 'TTL']], {origin: addrRecruitStatHead});
+
+
+  // =================================================================
+  // [4] 데이터 삽입
+  // =================================================================
+
+  // 1. 특이사항 데이터 (좌측)
+  if (workLogs?.remarks?.length > 0) {
+      const remarkData = workLogs.remarks.map(r => [r.category, r.level, r.name, r.note]);
+      XLSX.utils.sheet_add_aoa(ws5, remarkData, { origin: "B4" });
+  }
+
+  // 2. 섭외 건수 데이터 (우측 상단)
+  if (recruitData.length > 0) {
+      const rData = recruitData.map(r => [r.category, r.name, r.contact, r.status]);
+      XLSX.utils.sheet_add_aoa(ws5, rData, { origin: "G4" });
+  }
+
+  // 3. 면접 건수 데이터 (우측 하단 - 동적 위치)
+  if (interviewData.length > 0) {
+      const iData = interviewData.map(r => [r.category, r.name, r.result, r.note]);
+      // 계산된 시작 위치에 삽입
+      const addrDataStart = XLSX.utils.encode_cell({r: interviewStartRowIdx, c: 6});
+      XLSX.utils.sheet_add_aoa(ws5, iData, { origin: addrDataStart });
+  }
+
+
+  // =================================================================
+  // [5] 스타일링 (동적 범위 적용)
+  // =================================================================
+
+  // 1. 상단 헤더 스타일 (고정)
   applyCellStyle(ws5, {s:{r:1, c:1}, e:{r:1, c:4}}, 'greenHeader');
   applyCellStyle(ws5, {s:{r:2, c:1}, e:{r:2, c:4}}, 'greenHeader');
   applyCellStyle(ws5, {s:{r:1, c:6}, e:{r:1, c:9}}, 'greenHeader');
   applyCellStyle(ws5, {s:{r:2, c:6}, e:{r:2, c:9}}, 'greenHeader');
   applyCellStyle(ws5, {s:{r:1, c:11}, e:{r:1, c:13}}, 'greenHeader');
   applyCellStyle(ws5, {s:{r:2, c:11}, e:{r:2, c:13}}, 'greenHeader');
-  applyCellStyle(ws5, {s:{r:1, c:15}, e:{r:1, c:18}}, 'greenHeader');
-  applyCellStyle(ws5, {s:{r:2, c:15}, e:{r:2, c:18}}, 'greenHeader');
-  applyCellStyle(ws5, {s:{r:1, c:20}, e:{r:1, c:22}}, 'greenHeader');
-  applyCellStyle(ws5, {s:{r:2, c:20}, e:{r:2, c:22}}, 'greenHeader');
 
+  // 2. 하단 헤더 스타일 (동적 위치)
+  applyCellStyle(ws5, {s:{r:interviewHeaderRowIdx, c:6}, e:{r:interviewHeaderRowIdx, c:9}}, 'greenHeader');
+  applyCellStyle(ws5, {s:{r:interviewHeaderRowIdx+1, c:6}, e:{r:interviewHeaderRowIdx+1, c:9}}, 'greenHeader');
+  applyCellStyle(ws5, {s:{r:interviewHeaderRowIdx, c:11}, e:{r:interviewHeaderRowIdx, c:13}}, 'greenHeader');
+  applyCellStyle(ws5, {s:{r:interviewHeaderRowIdx+1, c:11}, e:{r:interviewHeaderRowIdx+1, c:13}}, 'greenHeader');
+
+  // 3. 본문 스타일 (데이터 길이에 맞춰 늘어남)
+  // 특이사항: B4 ~ B(recruitEndRowIdx와 비슷하게 맞추거나 길게)
+  // 여기선 특이사항도 섭외 건수 길이만큼 스타일 적용 (최소 50줄)
+  const maxContentRowIdx = Math.max(recruitEndRowIdx, 53); 
+  applyCellStyle(ws5, {s:{r:3, c:1}, e:{r:maxContentRowIdx, c:4}}, 'wrappedBody'); 
+
+  // 섭외 건수 본문: G4 ~ 계산된 끝 행
+  applyCellStyle(ws5, {s:{r:3, c:6}, e:{r:recruitEndRowIdx - 1, c:9}}, 'wrappedBody'); 
+  applyCellStyle(ws5, {s:{r:3, c:11}, e:{r:3, c:13}}, 'body'); // 통계
+
+  // 면접 건수 본문: 계산된 시작 ~ 계산된 끝
+  applyCellStyle(ws5, {s:{r:interviewStartRowIdx, c:6}, e:{r:interviewEndRowIdx - 1, c:9}}, 'wrappedBody');
+  applyCellStyle(ws5, {s:{r:interviewStartRowIdx, c:11}, e:{r:interviewStartRowIdx, c:13}}, 'body'); // 통계
+
+
+  // =================================================================
+  // [6] 셀 병합 & 수식 & 마무리
+  // =================================================================
+  
   ws5['!merges'] = [
-    {s:{r:1, c:1}, e:{r:1, c:4}}, {s:{r:1, c:6}, e:{r:1, c:9}},
-    {s:{r:1, c:11}, e:{r:1, c:13}}, {s:{r:1, c:15}, e:{r:1, c:18}},
-    {s:{r:1, c:20}, e:{r:1, c:22}},
+    {s:{r:1, c:1}, e:{r:1, c:4}}, 
+    {s:{r:1, c:6}, e:{r:1, c:9}}, 
+    {s:{r:1, c:11}, e:{r:1, c:13}}, 
+    
+    // 동적 위치 병합
+    {s:{r:interviewHeaderRowIdx, c:6}, e:{r:interviewHeaderRowIdx, c:9}}, 
+    {s:{r:interviewHeaderRowIdx, c:11}, e:{r:interviewHeaderRowIdx, c:13}},
   ];
 
-  // [수정 핵심] 줄바꿈 스타일 적용 (wrappedBody)
-  applyCellStyle(ws5, {s:{r:3, c:1}, e:{r:53, c:4}}, 'wrappedBody'); // 특이사항 본문
-  applyCellStyle(ws5, {s:{r:3, c:6}, e:{r:53, c:9}}, 'wrappedBody'); // 섭외 본문
-  applyCellStyle(ws5, {s:{r:3, c:11}, e:{r:3, c:13}}, 'body');       // 섭외 통계
-  applyCellStyle(ws5, {s:{r:3, c:15}, e:{r:15, c:18}}, 'wrappedBody');// 면접 본문
-  applyCellStyle(ws5, {s:{r:3, c:20}, e:{r:3, c:22}}, 'body');       // 면접 통계
-
-  // WorkLog 데이터 삽입
-  if (workLogs) {
-      if (workLogs.remarks && workLogs.remarks.length > 0) {
-          const remarkData = workLogs.remarks.map(r => [r.category, r.level, r.name, r.note]);
-          XLSX.utils.sheet_add_aoa(ws5, remarkData, { origin: "B4" });
-      }
-      if (workLogs.recruitments && workLogs.recruitments.length > 0) {
-          const recruitData = workLogs.recruitments.map(r => [r.category, r.name, r.contact, r.status]);
-          XLSX.utils.sheet_add_aoa(ws5, recruitData, { origin: "G4" });
-      }
-      if (workLogs.interviews && workLogs.interviews.length > 0) {
-          const interviewData = workLogs.interviews.map(r => [r.category, r.name, r.result, r.note]);
-          XLSX.utils.sheet_add_aoa(ws5, interviewData, { origin: "P4" });
-      }
-  }
-
-  // COUNTIF 수식
+  // 수식 (동적 범위 적용)
+  // 섭외 건수 통계 (데이터가 100개면 J104까지 체크하도록)
+  // 엑셀은 1-based index이므로 +1 해줌
+  const rEndExcel = recruitEndRowIdx; 
   XLSX.utils.sheet_add_aoa(ws5, [[
-    { t: 'n', f: 'COUNTIF(J4:J53, "거절")' },
-    { t: 'n', f: 'COUNTIF(J4:J53, "완료")' },
-    { t: 'n', f: 'COUNTA(G4:G53)' }
+    { t: 'n', f: `COUNTIF(J4:J${rEndExcel}, "거절")` },
+    { t: 'n', f: `COUNTIF(J4:J${rEndExcel}, "완료")` },
+    { t: 'n', f: `COUNTA(G4:G${rEndExcel})` }
   ]], {origin: "L4"});
 
+  // 면접 건수 통계
+  const iStartExcel = interviewStartRowIdx + 1;
+  const iEndExcel = interviewEndRowIdx;
+  const addrInterviewStat = XLSX.utils.encode_cell({r: interviewStartRowIdx, c: 11});
+
   XLSX.utils.sheet_add_aoa(ws5, [[
-    { t: 'n', f: 'COUNTIF(R4:R15, "합격")' },
-    { t: 'n', f: 'COUNTIF(R4:R15, "불합격")' },
-    { t: 'n', f: 'COUNTA(P4:P15)' }
-  ]], {origin: "U4"});
+    { t: 'n', f: `COUNTIF(I${iStartExcel}:I${iEndExcel}, "합격")` },
+    { t: 'n', f: `COUNTIF(I${iStartExcel}:I${iEndExcel}, "불합격")` },
+    { t: 'n', f: `COUNTA(G${iStartExcel}:G${iEndExcel})` }
+  ]], {origin: addrInterviewStat});
+
 
   ws5['!cols'] = [
     {wch:2}, {wch:8}, {wch:8}, {wch:12}, {wch:40}, {wch:2},
     {wch:8}, {wch:12}, {wch:15}, {wch:20}, {wch:2},
-    {wch:8}, {wch:8}, {wch:8}, {wch:2},
-    {wch:8}, {wch:12}, {wch:10}, {wch:25}, {wch:2},
     {wch:8}, {wch:8}, {wch:8}
   ];
   setZoom(ws5);
