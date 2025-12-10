@@ -19,6 +19,28 @@ const fmtTime = (s) => {
 };
 const fmtRate = (n) => (n || 0).toFixed(1) + '%';
 
+// [추가됨] 통계 계산 헬퍼 함수 (에러 해결 핵심)
+const calculateStats = (data) => {
+    if (!data || data.length === 0) return {};
+    const count = data.length;
+    
+    // 매출 통계
+    const totalRev = data.reduce((acc, r) => acc + (r.curRev || 0), 0);
+    const maxRev = Math.max(...data.map(r => r.curRev || 0));
+    
+    // 시간 통계 (초 단위)
+    const totalTime = data.reduce((acc, r) => acc + (r.curTime || 0), 0);
+    const maxTime = Math.max(...data.map(r => r.curTime || 0));
+
+    return {
+        count,
+        avgRev: totalRev / count,
+        maxRev,
+        avgTime: totalTime / count,
+        maxTime
+    };
+};
+
 const ChartComponent = ({ dataset, chartType, isMonthly, height=300, isDark }) => {
     const axisColor = isDark ? '#9ca3af' : '#4b5563'; 
     const gridColor = isDark ? '#374151' : '#e5e7eb';
@@ -69,20 +91,38 @@ const DashboardView = ({ data, memo, setMemo, isMonthly, isDark }) => {
     return <div className={`text-xs ${color}`}>{text}</div>;
   };
 
+  const resetSearch = () => { setSearchQuery(''); setFilterCode(null); setAiSortConfig(null); };
+
   const handleAiSearch = async (userInput = searchQuery) => {
-    if (!userInput.trim()) return;
+    // [수정] 빈 값 입력 시 초기화
+    if (!userInput || !userInput.trim()) {
+        resetSearch();
+        return;
+    }
+
     setIsSearching(true);
     try {
-        const result = await getFilterCondition(userInput);
+        // [수정] 통계 계산 함수 호출
+        const stats = calculateStats(data);
+
+        // [수정] 통계 데이터 함께 전달
+        const result = await getFilterCondition(userInput, stats);
+
         setFilterCode(result.filterCode);
         if (result.sortField && result.sortField !== 'null') {
             const cleanKey = result.sortField.replace('item.', '');
             setAiSortConfig({ key: cleanKey, order: result.sortOrder || 'desc' });
-        } else { setAiSortConfig(null); }
-    } catch (error) { console.error("AI Search Error:", error); alert("검색 오류"); } finally { setIsSearching(false); }
+        } else { 
+            setAiSortConfig(null); 
+        }
+    } catch (error) { 
+        console.error("AI Search Error:", error); 
+        alert("검색 오류가 발생했습니다."); 
+    } finally { 
+        setIsSearching(false); 
+    }
   };
   
-  const resetSearch = () => { setSearchQuery(''); setFilterCode(null); setAiSortConfig(null); };
   const handleKeyDown = (e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); handleAiSearch(e.target.value); }};
 
   const recalculatedData = useMemo(() => {
@@ -121,10 +161,10 @@ const DashboardView = ({ data, memo, setMemo, isMonthly, isDark }) => {
       <div className="mb-6 bg-indigo-50 dark:bg-gray-800 p-4 rounded-xl border border-indigo-100 dark:border-gray-700 flex items-center gap-3 shadow-sm transition-colors">
         <div className="bg-white dark:bg-gray-700 p-2 rounded-full text-indigo-600 dark:text-indigo-400 shadow-sm border border-transparent dark:border-gray-600"><Sparkles size={20} /></div>
         <div className="flex-1">
-            <div className="flex justify-between items-center mb-1"><h4 className="text-xs font-bold text-indigo-800 dark:text-indigo-300">AI 자연어 검색</h4></div>
+            <div className="flex justify-between items-center mb-1"><h4 className="text-xs font-bold text-indigo-800 dark:text-indigo-300">AI 자연어 검색 (예: "평균 매출 이상", "퍼플만", "2단계")</h4></div>
             <div className="flex gap-2">
                 <div className="relative flex-1">
-                    <input type="text" className="w-full border border-indigo-200 dark:border-gray-600 rounded-lg pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 dark:focus:ring-indigo-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 transition-colors" placeholder='예: "매출 100만원 이상", "미작성 후기 많은 순서"' value={searchQuery} onChange={(e)=>setSearchQuery(e.target.value)} onKeyDown={handleKeyDown} disabled={isSearching} />
+                    <input type="text" className="w-full border border-indigo-200 dark:border-gray-600 rounded-lg pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 dark:focus:ring-indigo-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 transition-colors" placeholder='검색어를 입력하세요...' value={searchQuery} onChange={(e)=>setSearchQuery(e.target.value)} onKeyDown={handleKeyDown} disabled={isSearching} />
                     <Search className="absolute left-3 top-2.5 text-indigo-300 dark:text-gray-400" size={16} />
                 </div>
                 <button onClick={() => handleAiSearch()} disabled={isSearching} className="bg-indigo-600 dark:bg-indigo-700 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-indigo-700 dark:hover:bg-indigo-600 transition disabled:bg-indigo-300 dark:disabled:bg-gray-700 shadow-sm">{isSearching ? '...' : '검색'}</button>

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Clock, Copy, XCircle, AlertCircle, RotateCcw, FileSpreadsheet, X, Check, FilePlus } from 'lucide-react';
+import { Clock, Copy, XCircle, FileSpreadsheet, X, FilePlus, RotateCcw } from 'lucide-react';
 import { AD_CYCLES } from '../utils/dataProcessor';
 import UploadBox from './UploadBox'; 
 
@@ -23,7 +23,7 @@ const calculateAdPeriod = (applyDateStr) => {
     return `${fmtDate(startObj)}~${fmtDate(endObj)}`;
 };
 
-// [팝업] 광고 이력 붙여넣기 모달 (기존 유지)
+// [팝업] 광고 이력 붙여넣기 모달
 const HistoryPasteModal = ({ isOpen, onClose, onConfirm }) => {
     const [text, setText] = useState('');
     const parseAndApply = () => {
@@ -71,26 +71,26 @@ const HistoryPasteModal = ({ isOpen, onClose, onConfirm }) => {
 };
 
 const AdManager = ({ data, history, setHistory, manualAdData, onUploadManual, onResetManual }) => {
+  // 필터 상태들
   const [filterSource, setFilterSource] = useState('all'); 
   const [filterLevel, setFilterLevel] = useState('all'); 
   const [filterType, setFilterType] = useState('all');   
-  const [filterCat, setFilterCat] = useState('all');     
+  const [filterField, setFilterField] = useState('all'); // [NEW] 분야 필터 추가 (타로, 사주, 신점)
+  
   const [requests, setRequests] = useState({}); 
   const [showHistoryModal, setShowHistoryModal] = useState(false);
 
   const handleHistoryUpdate = (newHistory) => { setHistory(prev => ({ ...prev, ...newHistory })); };
 
-  // [핵심 수정] 구글 스크립트 로직(adManager.gs) 마이그레이션
+  // 쿨타임 및 상태 확인 로직
   const getStatus = (nick, levelCat, adType) => {
     const isPhone = adType.includes('전화');
     const typeMain = isPhone ? '전화' : '채팅';
     const cleanLevelCat = levelCat.includes('퍼플') ? '퍼플' : '그린';
     
-    // 현재 시간 (0시 0분 0초 기준)
     const now = new Date();
     now.setHours(0, 0, 0, 0);
 
-    // 쿨타임 체크 함수 (GS 스크립트 로직 적용)
     const checkCoolDown = (targetKey) => {
         if (!history[targetKey]) return null;
         
@@ -102,11 +102,9 @@ const AdManager = ({ data, history, setHistory, manualAdData, onUploadManual, on
         const recordedSubMatch = recordedAdType.match(/\((.+)\)/);
         const recordedSub = recordedSubMatch ? recordedSubMatch[1] : '메인';
         
-        // 1. 기본 주기 가져오기
         let totalCycle = AD_CYCLES[cleanLevelCat]?.[typeMain]?.[recordedSub] || 4;
 
-        // 2. [GS 스크립트 예외 처리 반영]
-        // 특정 상담사에 대한 예외 규칙 적용
+        // 예외 처리
         if (cleanLevelCat === '퍼플' && recordedAdType === '전화(사주)' && nick === '채원') {
             totalCycle = 1;
         }
@@ -114,7 +112,6 @@ const AdManager = ({ data, history, setHistory, manualAdData, onUploadManual, on
             totalCycle = 1;
         }
 
-        // 3. 경과 주차 계산 (밀리초 단위 계산 -> 주 단위 변환)
         const diffTime = now.getTime() - lastAppDate.getTime();
         const weeksPassed = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 7));
         const weeksLeft = totalCycle - weeksPassed;
@@ -125,12 +122,10 @@ const AdManager = ({ data, history, setHistory, manualAdData, onUploadManual, on
         return null;
     };
 
-    // 1. 자기 자신 체크
     const myKey = `${nick}_${adType}`;
     const myStatus = checkCoolDown(myKey);
     if (myStatus) return myStatus;
 
-    // 2. 형제 광고 체크 (메인 <-> 분야) - 쿨타임 공유
     const myMediumPrefix = isPhone ? '전화' : '채팅';
     const siblingEntry = Object.keys(history).find(key => {
         return key.startsWith(`${nick}_${myMediumPrefix}`) && key !== myKey;
@@ -139,7 +134,6 @@ const AdManager = ({ data, history, setHistory, manualAdData, onUploadManual, on
     if (siblingEntry) {
         const siblingStatus = checkCoolDown(siblingEntry);
         if (siblingStatus) {
-            // 형제가 쿨타임이면 나도 똑같이 쿨타임 표시
             return { status: 'cool', msg: siblingStatus.msg, date: siblingStatus.date, key: siblingStatus.key }; 
         }
     }
@@ -189,7 +183,6 @@ const AdManager = ({ data, history, setHistory, manualAdData, onUploadManual, on
       });
   };
 
-  // 신청서 양식 고정
   const generateRequestText = () => {
     let text = '';
     const ORDERED_KEYS = ['전화(메인)', '전화(타로)', '전화(사주)', '전화(신점)', '채팅(메인)', '채팅(타로)', '채팅(사주)', '채팅(신점)'];
@@ -206,6 +199,7 @@ const AdManager = ({ data, history, setHistory, manualAdData, onUploadManual, on
     return text.trim();
   };
 
+  // [수정] 데이터 필터링 로직에 '분야(Field)' 추가
   const filteredData = data.filter(r => {
       if (filterSource === 'manual' && !r.isManual) return false;
       if (filterSource === 'auto' && r.isManual) return false;
@@ -213,7 +207,10 @@ const AdManager = ({ data, history, setHistory, manualAdData, onUploadManual, on
       if(filterLevel !== 'all' && !r.levelCat.includes(filterLevel)) return false;
       if(filterType === 'phone' && !r.adEligibleTypes.some(t => t.includes('전화'))) return false;
       if(filterType === 'chat' && !r.adEligibleTypes.some(t => t.includes('채팅'))) return false;
-      if(filterCat !== 'all' && !r.category.includes(filterCat)) return false;
+      
+      // [NEW] 분야 필터링 로직
+      if(filterField !== 'all' && !r.category.includes(filterField)) return false;
+
       return true;
   });
 
@@ -259,7 +256,7 @@ const AdManager = ({ data, history, setHistory, manualAdData, onUploadManual, on
                 
                 {activeAdInfo && (
                     <div className="mt-2 text-xs font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 px-2 py-1 rounded w-fit">
-                        🗓️ {activeAdInfo.period} {activeAdInfo.type} 진행 중
+                        🗓️ {activeAdInfo.period} {activeAdInfo.type} 진행
                     </div>
                 )}
             </div>
@@ -334,10 +331,24 @@ const AdManager = ({ data, history, setHistory, manualAdData, onUploadManual, on
         <div className="mb-4 bg-gray-50 dark:bg-gray-800 p-4 rounded-lg flex flex-wrap items-center justify-between gap-y-3 border border-gray-100 dark:border-gray-700">
             <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
                 <div className="flex items-center gap-2"><span className="font-bold text-gray-700 dark:text-gray-300 text-sm">구분:</span>{['all', 'auto', 'manual'].map(f => <FilterBtn key={f} active={filterSource===f} label={f==='all'?'전체':f==='auto'?'일반':'개별'} onClick={()=>setFilterSource(f)}/>)}</div>
+                
                 <div className="hidden md:block w-px h-5 bg-gray-300 dark:bg-gray-600"></div>
+                
                 <div className="flex items-center gap-2"><span className="font-bold text-gray-700 dark:text-gray-300 text-sm">등급:</span>{['all', '그린', '퍼플'].map(f => <FilterBtn key={f} active={filterLevel===f} label={f==='all'?'전체':f} onClick={()=>setFilterLevel(f)}/>)}</div>
+                
                 <div className="hidden md:block w-px h-5 bg-gray-300 dark:bg-gray-600"></div>
+                
                 <div className="flex items-center gap-2"><span className="font-bold text-gray-700 dark:text-gray-300 text-sm">서비스:</span>{['all', 'phone', 'chat'].map(f => <FilterBtn key={f} active={filterType===f} label={f==='all'?'전체':f==='phone'?'전화':'채팅'} onClick={()=>setFilterType(f)}/>)}</div>
+
+                {/* [NEW] 분야 필터 추가 */}
+                <div className="hidden md:block w-px h-5 bg-gray-300 dark:bg-gray-600"></div>
+                <div className="flex items-center gap-2">
+                    <span className="font-bold text-gray-700 dark:text-gray-300 text-sm">분야:</span>
+                    {['all', '타로', '사주', '신점'].map(f => (
+                        <FilterBtn key={f} active={filterField===f} label={f==='all'?'전체':f} onClick={()=>setFilterField(f)}/>
+                    ))}
+                </div>
+
             </div>
             <div className="flex gap-2">
                 <button onClick={()=>setShowHistoryModal(true)} className="flex items-center gap-1 bg-green-600 text-white px-3 py-1.5 rounded text-sm font-bold hover:bg-green-700 transition shadow-sm"><FileSpreadsheet size={16}/> 이력 붙여넣기</button>
