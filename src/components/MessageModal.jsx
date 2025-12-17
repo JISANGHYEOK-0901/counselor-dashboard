@@ -1,9 +1,8 @@
-"use client";
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { generateAiAdvice } from '../utils/aiManager'; 
+import { Sparkles } from 'lucide-react'; 
 
-// ==========================================
-// 1. 날짜 계산 로직
-// ==========================================
+// ... (getCalculatedDates 함수 및 SCRIPTS 상수는 기존 코드와 동일하므로 생략 - 파일 상단에 유지해주세요) ...
 const getCalculatedDates = () => {
   const today = new Date();
   const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1);
@@ -18,11 +17,7 @@ const getCalculatedDates = () => {
   };
 };
 
-// ==========================================
-// 2. 스크립트 템플릿
-// ==========================================
 const SCRIPTS = {
-  // [NEW] 신규 상담사 안내
   'NEW': (name) => `선생님 안녕하세요!
 앞으로 선생님 담당하게 될 홍카페 담당자 ㅇㅇㅇ입니다.
 선생님 담당을 맡게 되어 연락드렸으며 간단하게 홍카페 안내 드리려고 합니다!
@@ -66,45 +61,31 @@ const SCRIPTS = {
   'BLIND': (name, dates) => `안녕하세요 선생님!\n\n선생님께서는 0단계 5시간 미달성으로 ${dates.nextMonthFull}부로 상담사 블라인드 처리가 완료되었음을 안내드립니다.\n\n재등록은 6개월 이후부터 가능하며 재등록을 원하실 경우 해당 시점에 고객센터로 문의 부탁드립니다.\n\n감사합니다.`
 };
 
-// ==========================================
-// 3. 컴포넌트 메인
-// ==========================================
 export default function MessageModal({ isOpen, onClose, counselor }) {
   const [activeTab, setActiveTab] = useState('A');
   const [text, setText] = useState('');
-  const dates = getCalculatedDates();
+  
+  const dates = useMemo(() => getCalculatedDates(), []);
 
-  // 탭 자동 선택 로직 (우선순위 재조정)
+  // 탭 자동 선택 로직
   useEffect(() => {
     if (isOpen && counselor) {
       const issues = counselor.issues || []; 
       const status = counselor.status;
       const curTime = counselor.curTime || 0; 
 
-      // 1순위: 신규
-      if (status === 'new') {
-        setActiveTab('NEW');
-      }
-      // 2순위: 이미 블라인드 상태
-      else if (status === 'blind') {
-        setActiveTab('BLIND');
-      }
-      // 3순위: 이슈 코드 (사용자 요청: 이슈가 있으면 이슈 탭이 먼저 보이게)
+      if (status === 'new') setActiveTab('NEW');
+      else if (status === 'blind') setActiveTab('BLIND');
       else if (issues.some(i => i.startsWith('C'))) setActiveTab('C');
       else if (issues.some(i => i.startsWith('D'))) setActiveTab('D');
       else if (issues.some(i => i.startsWith('A'))) setActiveTab('A');
       else if (issues.some(i => i.startsWith('B'))) setActiveTab('B');
-      // 4순위: 시간 부족 경고 (이슈가 없을 때만, 혹은 최후순위)
-      else if (curTime < 5 * 3600) {
-        setActiveTab('WARN');
-      }
-      else {
-        setActiveTab('A'); // 기본값
-      }
+      else if (curTime < 5 * 3600) setActiveTab('WARN');
+      else setActiveTab('A');
     }
   }, [isOpen, counselor]);
 
-  // 텍스트 생성 로직
+  // 기본 텍스트 생성 로직
   useEffect(() => {
     if (counselor && SCRIPTS[activeTab]) {
       const displayName = counselor.realName || counselor.nick; 
@@ -114,7 +95,13 @@ export default function MessageModal({ isOpen, onClose, counselor }) {
         setText(SCRIPTS[activeTab](displayName));
       }
     }
-  }, [activeTab, counselor]);
+  }, [activeTab, counselor, dates]);
+
+  const handleAiWrite = () => {
+    if (!counselor) return;
+    const aiText = generateAiAdvice(counselor, activeTab);
+    setText(aiText);
+  };
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(text);
@@ -128,15 +115,10 @@ export default function MessageModal({ isOpen, onClose, counselor }) {
   const getTabStyle = (tabKey) => {
     const isActive = activeTab === tabKey;
     const hasIssue = counselor.issues?.some(i => i.startsWith(tabKey));
-    
     let base = "px-3 py-1.5 rounded-full text-sm font-medium transition-colors border ";
-    if (isActive) {
-      return base + "bg-purple-600 text-white border-purple-600 shadow-md";
-    } else if (hasIssue) {
-      return base + "bg-purple-50 text-purple-700 border-purple-200 ring-2 ring-purple-100";
-    } else {
-      return base + "bg-white text-gray-500 border-gray-200 hover:bg-gray-50";
-    }
+    if (isActive) return base + "bg-purple-600 text-white border-purple-600 shadow-md";
+    else if (hasIssue) return base + "bg-purple-50 text-purple-700 border-purple-200 ring-2 ring-purple-100";
+    else return base + "bg-white text-gray-500 border-gray-200 hover:bg-gray-50";
   };
 
   const warnStyle = activeTab === 'WARN'
@@ -153,13 +135,12 @@ export default function MessageModal({ isOpen, onClose, counselor }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm">
-      <div className="bg-white w-full max-w-lg rounded-xl shadow-2xl p-6 transform transition-all">
+      <div className="bg-white dark:bg-gray-800 w-full max-w-lg rounded-xl shadow-2xl p-6 transform transition-all border dark:border-gray-700">
         
-        <div className="flex justify-between items-center mb-4 border-b pb-3">
+        <div className="flex justify-between items-center mb-4 border-b dark:border-gray-700 pb-3">
           <div>
             <span className="text-gray-500 text-sm">To.</span>
-            <h2 className="text-lg font-bold text-gray-800">
-              {/* [수정] 타로_실명_활동명, 전화번호 형식으로 변경 */}
+            <h2 className="text-lg font-bold text-gray-800 dark:text-white">
               {counselor.category}_{counselor.realName}_{counselor.nick}
             </h2>
           </div>
@@ -178,9 +159,21 @@ export default function MessageModal({ isOpen, onClose, counselor }) {
           <button onClick={() => setActiveTab('BLIND')} className={blindStyle}>🚫 안내</button>
         </div>
 
+        {/* [수정] 조건부 렌더링: 신규, 경고, 안내 탭에서는 AI 버튼 숨김 */}
+        {!['NEW', 'WARN', 'BLIND'].includes(activeTab) && (
+            <div className="flex justify-end mb-2">
+                <button 
+                    onClick={handleAiWrite}
+                    className="flex items-center gap-1.5 text-xs font-bold bg-gradient-to-r from-indigo-500 to-purple-500 text-white px-3 py-1.5 rounded-full hover:from-indigo-600 hover:to-purple-600 transition shadow-sm transform hover:scale-105"
+                >
+                    <Sparkles size={12} fill="currentColor" /> AI 매니저로 다시 쓰기
+                </button>
+            </div>
+        )}
+
         <div className="relative">
           <textarea
-            className="w-full h-60 p-4 bg-gray-50 border border-gray-200 rounded-lg text-gray-700 text-sm leading-relaxed resize-none focus:outline-none focus:ring-2 focus:ring-purple-500 focus:bg-white transition-all"
+            className="w-full h-60 p-4 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-200 text-sm leading-relaxed resize-none focus:outline-none focus:ring-2 focus:ring-purple-500 focus:bg-white dark:focus:bg-gray-800 transition-all"
             value={text}
             onChange={(e) => setText(e.target.value)}
           />
@@ -188,7 +181,7 @@ export default function MessageModal({ isOpen, onClose, counselor }) {
         </div>
 
         <div className="flex gap-3 mt-6">
-          <button onClick={onClose} className="flex-1 py-3 px-4 bg-gray-100 text-gray-600 rounded-lg font-bold hover:bg-gray-200 transition-colors">취소</button>
+          <button onClick={onClose} className="flex-1 py-3 px-4 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-lg font-bold hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">취소</button>
           <button onClick={copyToClipboard} className="flex-1 py-3 px-4 bg-purple-600 text-white rounded-lg font-bold hover:bg-purple-700 shadow-lg transition-colors flex justify-center items-center gap-2">
             <span>복사하기</span>
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" /></svg>

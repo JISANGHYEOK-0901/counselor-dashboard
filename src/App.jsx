@@ -10,6 +10,7 @@ import RevenuePage from "./components/RevenuePage";
 import PerformanceReportTable from "./components/PerformanceReportTable";
 import EmptyState from "./components/EmptyState";
 import WorkLogPage from "./components/WorkLogPage"; 
+import AiChatbot from './components/AiChatbot';
 
 const GlobalDarkStyle = () => (
   <style>{`
@@ -49,6 +50,8 @@ function App() {
   const [pasteModal, setPasteModal] = useState({ open: false, target: '' });
   const [targetMonth, setTargetMonth] = useState(new Date().getMonth() + 1);
   const [isDark, setIsDark] = useState(false);
+
+  const currentData = activeTab === 'monthly' ? persistedData.monthly : persistedData.weekly;
 
   useEffect(() => localStorage.setItem('dashboardData', JSON.stringify(persistedData)), [persistedData]);
   useEffect(() => localStorage.setItem('dashboardMemo', JSON.stringify(memo)), [memo]);
@@ -273,6 +276,7 @@ function App() {
           {activeTab === 'worklog' && <WorkLogPage workLogs={workLogs} setWorkLogs={setWorkLogs} />}
         </div>
       </div>
+      {currentData && <AiChatbot data={currentData} />}
     </div>
   );
 }
