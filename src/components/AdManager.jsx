@@ -1,6 +1,5 @@
 import React, { useState, useMemo } from 'react';
-// [수정] Clock 아이콘 추가
-import { Copy, XCircle, FileSpreadsheet, X, FilePlus, RotateCcw, Search, Clock } from 'lucide-react';
+import { Copy, XCircle, FileSpreadsheet, X, FilePlus, RotateCcw, Search, Clock, Trash2, FileText } from 'lucide-react';
 import { AD_CYCLES } from '../utils/dataProcessor';
 import UploadBox from './UploadBox'; 
 
@@ -36,12 +35,6 @@ const getNextWeekPeriod = (applyDateStr) => {
     endObj.setDate(startObj.getDate() + 6); 
 
     return `${fmtYYMMDD(startObj)}~${fmtYYMMDD(endObj)}`;
-};
-
-const toShortDate = (isoStr) => {
-    if (!isoStr) return '-';
-    const [y, m, d] = isoStr.split('-');
-    return `${y.slice(2)}.${m}.${d}`;
 };
 
 // ==========================================
@@ -254,7 +247,7 @@ const AdManager = ({ data, history, setHistory, manualAdData, onUploadManual, on
     });
   }, [data, filterSource, filterLevel, filterType, filterField, searchQuery]);
 
-  return (
+return (
     <div className="flex gap-6 h-[700px]">
       <div className="flex-1 flex flex-col h-full overflow-hidden">
         {/* 상단 필터 바 */}
@@ -268,6 +261,15 @@ const AdManager = ({ data, history, setHistory, manualAdData, onUploadManual, on
             </div>
 
             <div className="flex flex-wrap items-center gap-2 justify-end">
+                {manualAdData && (
+                    <div className="flex items-center gap-2 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 px-3 py-1.5 rounded-full text-sm font-bold border border-indigo-100 dark:border-indigo-700 animate-fade-in mr-2 shadow-sm">
+                        <FileText size={14}/>
+                        <span className="truncate max-w-[150px]">{manualAdData.name}</span>
+                        <button onClick={onResetManual} className="hover:text-red-500 dark:hover:text-red-400 transition bg-white dark:bg-gray-700 rounded-full p-0.5 shadow-sm" title="개별 파일 삭제">
+                            <X size={12}/>
+                        </button>
+                    </div>
+                )}
                 <div className="relative">
                     <input type="text" className="pl-8 pr-3 py-1.5 text-sm border rounded-full w-40 bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100" placeholder="상담사명 검색" value={searchQuery} onChange={(e)=>setSearchQuery(e.target.value)} />
                     <Search size={14} className="absolute left-2.5 top-2 text-gray-400"/>
@@ -289,8 +291,11 @@ const AdManager = ({ data, history, setHistory, manualAdData, onUploadManual, on
                 <table className="w-full text-sm text-center border-collapse">
                     <thead className="sticky top-0 z-30 bg-gray-100 dark:bg-gray-700 shadow-sm text-gray-700 dark:text-gray-200">
                         <tr>
-                            <th className="p-3 sticky left-0 z-40 bg-gray-100 dark:bg-gray-700 border-r dark:border-gray-600 min-w-[220px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">상담사</th>
+                            {/* [수정] 너비 축소 (min-w-220px -> min-w-140px) */}
+                            <th className="p-3 sticky left-0 z-40 bg-gray-100 dark:bg-gray-700 border-r dark:border-gray-600 min-w-[140px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">상담사</th>
+                            {/* [추가] 최근 이력 컬럼 생성 */}
                             <th className="p-3 min-w-[80px] border-r dark:border-gray-600">등급</th>
+                            <th className="p-3 min-w-[180px] border-r dark:border-gray-600">최근 이력</th>
                             {ALL_AD_TYPES.map(type => (
                                 <th key={type} className="p-3 min-w-[100px] border-r dark:border-gray-600 font-medium whitespace-nowrap">
                                     {type.replace('전화', '📞').replace('채팅', '💬')}
@@ -300,7 +305,7 @@ const AdManager = ({ data, history, setHistory, manualAdData, onUploadManual, on
                     </thead>
                     <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                         {filteredData.length === 0 ? (
-                            <tr><td colSpan={ALL_AD_TYPES.length + 2} className="p-10 text-gray-400">검색 조건에 맞는 상담사가 없습니다.</td></tr>
+                            <tr><td colSpan={ALL_AD_TYPES.length + 3} className="p-10 text-gray-400">검색 조건에 맞는 상담사가 없습니다.</td></tr>
                         ) : (
                             filteredData.map((row) => {
                                 const isPurple = row.levelCat.includes('퍼플');
@@ -309,27 +314,35 @@ const AdManager = ({ data, history, setHistory, manualAdData, onUploadManual, on
 
                                 return (
                                     <tr key={row.nick} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
+                                        {/* 1. 상담사 이름 컬럼 (배지 제거) */}
                                         <td className={`p-3 sticky left-0 z-20 bg-white dark:bg-gray-800 border-r dark:border-gray-600 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] text-left pl-4 group`}>
                                             <div className="flex flex-col">
                                                 <div className="flex items-center gap-2">
-                                                    <span className="font-bold text-base dark:text-gray-100 truncate max-w-[80px]">{row.nick}</span>
-                                                    
-                                                    {/* [수정] 이력 표시 디자인 개선 (밋밋하지 않게) */}
-                                                    {recentAdInfo && (
-                                                        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-indigo-600 bg-indigo-50 dark:text-indigo-300 dark:bg-indigo-900/40 border border-indigo-100 dark:border-indigo-700 px-2 py-0.5 rounded-md shadow-sm whitespace-nowrap">
-                                                            <Clock size={11} className="shrink-0"/>
-                                                            {recentAdInfo}
-                                                        </span>
+                                                    <span className="font-bold text-base dark:text-gray-100 truncate max-w-[120px]">{row.nick}</span>
+                                                    {row.isManual && (
+                                                        <span className="text-[10px] bg-gray-100 dark:bg-gray-700 text-gray-500 border border-gray-200 dark:border-gray-600 px-1.5 py-0.5 rounded">개별</span>
                                                     )}
                                                 </div>
                                                 <span className={`text-xs ${nameClass}`}>{row.category}</span>
                                             </div>
                                         </td>
                                         
+
+
                                         <td className="p-3 border-r dark:border-gray-600 text-gray-500 dark:text-gray-400 text-xs">
                                             {row.levelCat}<br/>{row.level}
                                         </td>
-                                        
+                                                                                {/* 2. [NEW] 최근 이력 컬럼 (배지 이동) */}
+                                        <td className="p-3 border-r dark:border-gray-600">
+                                            {recentAdInfo ? (
+                                                <span className="inline-flex items-center gap-1 text-[11px] font-medium text-indigo-600 bg-indigo-50 dark:text-indigo-300 dark:bg-indigo-900/40 border border-indigo-100 dark:border-indigo-700 px-2 py-1 rounded-md shadow-sm whitespace-nowrap">
+                                                    <Clock size={11} className="shrink-0"/>
+                                                    {recentAdInfo}
+                                                </span>
+                                            ) : (
+                                                <span className="text-gray-300 text-xs">-</span>
+                                            )}
+                                        </td>
                                         {ALL_AD_TYPES.map(type => {
                                             const isEligible = row.adEligibleTypes.includes(type);
                                             const historyKey = `${row.nick}_${type}`;
