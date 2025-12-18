@@ -11,6 +11,7 @@ import EmptyState from "./components/EmptyState";
 import WorkLogPage from "./components/WorkLogPage"; 
 import SixMonthReport from './components/SixMonthReport'; // [NEW] import 추가
 import AiChatbot from './components/AiChatbot';
+import UsageGuide from './components/UsageGuide';
 
 const GlobalDarkStyle = () => (
   <style>{`
@@ -188,6 +189,7 @@ function App() {
   }, [persistedData.weekly, persistedData.monthly, manualAdData]);
 
   const TABS = [
+    { id: 'guide', label: '📖 사용설명서' },
     { id: 'weekly', label: '📊 주간 대시보드' },
     { id: 'monthly', label: '📅 월간 대시보드' },
     { id: 'report', label: '📝 성과 보고서' },
@@ -223,6 +225,8 @@ function App() {
                 </div>
             </div>
           </div>
+
+{activeTab === 'guide' && <UsageGuide />}
 
           {activeTab === 'weekly' && (
               <div className="flex gap-4 items-stretch">
