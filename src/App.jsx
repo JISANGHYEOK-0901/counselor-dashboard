@@ -7,9 +7,9 @@ import UploadBox from "./components/UploadBox";
 import DashboardView from "./components/DashboardView";
 import AdManager from "./components/AdManager";
 import RevenuePage from "./components/RevenuePage";
-import PerformanceReportTable from "./components/PerformanceReportTable";
 import EmptyState from "./components/EmptyState";
 import WorkLogPage from "./components/WorkLogPage"; 
+import SixMonthReport from './components/SixMonthReport'; // [NEW] import 추가
 import AiChatbot from './components/AiChatbot';
 
 const GlobalDarkStyle = () => (
@@ -39,7 +39,6 @@ function App() {
   const [persistedData, setPersistedData] = useState(() => JSON.parse(localStorage.getItem('dashboardData')) || { weekly: null, monthly: null, report: null, revSummary: null });
   const [tempFiles, setTempFiles] = useState(() => JSON.parse(localStorage.getItem('rawDataStorage')) || { lastWeek: null, thisWeek: null, lastMonth: null, thisMonth: null });
   
-  // 광고 관리 전용 개별 데이터
   const [manualAdData, setManualAdData] = useState(() => JSON.parse(localStorage.getItem('manualAdData')) || null);
 
   const [activeTab, setActiveTab] = useState('weekly');
@@ -50,8 +49,6 @@ function App() {
   const [pasteModal, setPasteModal] = useState({ open: false, target: '' });
   const [targetMonth, setTargetMonth] = useState(new Date().getMonth() + 1);
   const [isDark, setIsDark] = useState(false);
-
-  const currentData = activeTab === 'monthly' ? persistedData.monthly : persistedData.weekly;
 
   useEffect(() => localStorage.setItem('dashboardData', JSON.stringify(persistedData)), [persistedData]);
   useEffect(() => localStorage.setItem('dashboardMemo', JSON.stringify(memo)), [memo]);
@@ -160,7 +157,6 @@ function App() {
       } catch (e) { console.error(e); alert("다운로드 오류: " + e.message); }
   };
 
-  // 데이터 병합 (주간/월간 + 개별)
   const mergedAdData = useMemo(() => {
       const weekly = persistedData.weekly || [];
       const monthly = persistedData.monthly || [];
@@ -199,6 +195,8 @@ function App() {
     { id: 'revenue', label: '💰 월매출 비교' },
     { id: 'worklog', label: '📓 업무 일지' },
   ];
+
+  const currentData = activeTab === 'monthly' ? persistedData.monthly : persistedData.weekly;
 
   return (
     <div className={`min-h-screen font-sans transition-colors duration-300 ${isDark ? 'dark bg-gray-900 text-gray-100' : 'bg-gray-100 text-gray-800'} pb-20`}>
@@ -259,10 +257,9 @@ function App() {
           {activeTab === 'weekly' && (persistedData.weekly ? <DashboardView data={persistedData.weekly} memo={memo} setMemo={setMemo} isDark={isDark} /> : <EmptyState />)}
           {activeTab === 'monthly' && (persistedData.monthly ? <DashboardView data={persistedData.monthly} memo={memo} setMemo={setMemo} isMonthly isDark={isDark} /> : <EmptyState type="monthly" />)}
           
-          {/* AdManager에 개별 파일 관리 기능 Props 전달 */}
           {activeTab === 'ad' && (
               <AdManager 
-                data={mergedAdData || []} // 데이터 없어도 빈 배열로 렌더링 (내부에서 처리)
+                data={mergedAdData || []} 
                 history={adHistory} 
                 setHistory={setAdHistory}
                 manualAdData={manualAdData}
@@ -272,10 +269,13 @@ function App() {
           )}
           
           {activeTab === 'revenue' && (persistedData.revSummary ? <RevenuePage summary={persistedData.revSummary} memo={memo} setMemo={setMemo} /> : <EmptyState type="monthly" />)}
-          {activeTab === 'report' && (persistedData.report ? <PerformanceReportTable data={persistedData.report} /> : <EmptyState type="monthly" />)}
+          
+          {activeTab === 'report' && <SixMonthReport />}
+          
           {activeTab === 'worklog' && <WorkLogPage workLogs={workLogs} setWorkLogs={setWorkLogs} />}
         </div>
       </div>
+      
       {currentData && <AiChatbot data={currentData} />}
     </div>
   );
