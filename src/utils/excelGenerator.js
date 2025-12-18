@@ -54,6 +54,12 @@ const STYLES = {
     alignment: { vertical: "top", horizontal: "center", wrapText: true }, 
     border: { top: THIN_BORDER, bottom: THIN_BORDER, left: THIN_BORDER, right: THIN_BORDER }
   },
+  // [NEW] 왼쪽 정렬 스타일 (목표설정용, 들여쓰기 1칸 포함)
+  leftAlignBody: {
+    font: { ...FONTS.body },
+    alignment: { vertical: "center", horizontal: "left", wrapText: true, indent: 1 }, 
+    border: { top: THIN_BORDER, bottom: THIN_BORDER, left: THIN_BORDER, right: THIN_BORDER }
+  },
   numberBody: {
     font: { ...FONTS.body },
     alignment: { vertical: "center", horizontal: "right" },
@@ -111,6 +117,10 @@ const autoFitColumns = (ws, headerRowIndex = 0, padding = 4) => {
     if (C >= 5 && C <= 14) {
         finalWidth = Math.max(finalWidth, 16);
     }
+    // [NEW] 목표설정(14번 열)은 내용이 길어서 더 넓게 설정 (50)
+    if (C === 14) {
+        finalWidth = Math.max(finalWidth, 50);
+    }
 
     colWidths[C] = { wch: finalWidth };
   }
@@ -156,49 +166,49 @@ const formatTime = (seconds) => {
 // ==========================================
 // [NEW] 6개월 성과보고 전용 목표 자동생성 로직
 // ==========================================
-const getSixMonthGoalText = (row) => {
-  // 1. 블라인드 상담사: 목표 작성 X (빈칸)
-  if (row.nick && row.nick.includes('블라인드')) return "";
+const getSixMonthGoalText = (row, isBlind) => {
+  // 블라인드 상담사는 목표 빈칸
+  if (isBlind) return "";
 
   const avgRev = row.avgRev || 0;
   const level = parseInt(row.level) || 0;
-  const revenues = row.revenues || []; // [month1, month2, ..., month6]
   
-  // 매출 추이 파악 (마지막 달 vs 그 전달 비교)
-  const lastMonthRev = revenues[revenues.length - 1] || 0; // 이번 달
-  const prevMonthRev = revenues[revenues.length - 2] || 0; // 전달
+  // 유효한 숫자 데이터만 필터링 (null/undefined 제외)
+  const revenues = Array.isArray(row.revenues) ? row.revenues : [];
+  const validRevs = revenues.filter(v => v !== null && v !== undefined && v !== '');
+  
+  // 데이터가 아예 없으면 기본값 반환
+  if (validRevs.length === 0) return "";
 
-  // [우선순위 1] 매출이 꾸준히 우상향중인 상담사 (지난달 대비 상승)
+  const lastMonthRev = validRevs[validRevs.length - 1] || 0;
+  const prevMonthRev = validRevs[validRevs.length - 2] || 0;
+
+  // [우선순위 1] 매출 우상향
   if (lastMonthRev > prevMonthRev) {
     return "지금과 같이 규칙적인 접속시간 유지 및 단골 확보하여 매출 높일 수 있도록 목표 설정";
   }
-
-  // [우선순위 2] 매출이 떨어지고있는 상담사 (지난달 대비 하락)
+  // [우선순위 2] 매출 하락
   if (lastMonthRev < prevMonthRev) {
     return "접속시간, 부재중 모니터링 및 상담 노하우 팁 전달 예정";
   }
-
-  // [우선순위 3] 0단계인 상담사
+  // [우선순위 3] 0단계
   if (level === 0) {
     return "접속시간 증가 필요, 규칙적인 접속시간 유지 및 단골 확보하여 매출 높일 수 있도록 목표설정";
   }
-
-  // [우선순위 4] 1~2단계 상담사
+  // [우선순위 4] 1~2단계
   if (level >= 1 && level <= 2) {
     return "접속시간 증가 및 단골 형성, 매출 상승을 통해 단계 승급할 수 있도록 목표 설정";
   }
-
-  // [우선순위 5] 그 외 전체정산이 500만원 이상인 상담사
+  // [우선순위 5] 고수익자
   if (avgRev >= 5000000) {
     return "지금과 같이 규칙적인 접속시간 유지, 후기와 단골 관리를 통해 매출 상향";
   }
-
-  // [우선순위 6] 나머지 (보통 매출이 안나오는 상담사)
+  // [우선순위 6] 나머지
   return "접속시간 증가, 주 고객들이 활동하는 출근, 점심, 퇴근 이후 시간대 활동, 포스팅 작성을 통한 고객 유입, 부재중 관리";
 };
 
 // ==========================================
-// 1. 월간 리포트 생성 함수 (기존 로직 롤백)
+// 1. 월간 리포트 생성 함수 (기존 로직 유지)
 // ==========================================
 export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, targetMonth, userMemo = {}, workLogs = null) => {
   const wb = XLSX.utils.book_new();
@@ -212,7 +222,6 @@ export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, target
   const mergeText = '증액,하락\n통합\n(전체상담사)\n단계별로 정렬';
   
   analyzedCurrent.forEach((row, i) => {
-    // [롤백] 월간 리포트는 기존 입력값(row.goal) 사용
     s1Data.push([
       i === 0 ? mergeText : '', 
       row.category || '-', row.levelCat || '-', row.level || '-', row.nick,
@@ -220,7 +229,7 @@ export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, target
       row.prevRev || 0, row.curRev || 0, (row.revRate * 100).toFixed(1) + '%',
       (row.curRev || 0) - (row.prevRev || 0), 
       row.reason || '-', 
-      row.goal || '-'  // 기존 목표값 유지
+      row.goal || '-'
     ]);
   });
 
@@ -300,14 +309,39 @@ export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, target
 };
 
 // ==========================================
-// 2. 6개월 성과보고 엑셀 생성 함수 (수정 적용)
+// 2. 6개월 성과보고 엑셀 생성 함수
 // ==========================================
-export const generateSixMonthExcel = (data, year, half, monthLabels) => {
+export const generateSixMonthExcel = (originalData, year, half, monthLabels) => {
     const wb = XLSX.utils.book_new();
     const sheetName = `${year}년 ${half === '1' ? '상반기' : '하반기'} 성과보고`;
     const titleText = `${year}년 ${half === '1' ? '상반기' : '하반기'}`; 
 
     const ws = XLSX.utils.aoa_to_sheet([]);
+
+    // [Step 1] 블라인드 여부 판별 및 데이터 준비
+    const processedData = originalData.map(r => {
+        // 배열 안전 처리 (null이 올 수도 있으므로 원본 유지)
+        const revenues = Array.isArray(r.revenues) ? r.revenues : [];
+        const totalRev = r.totalRev || 0;
+        
+        // [중요 수정] 블라인드 로직:
+        // 1. 총 매출(totalRev)은 0보다 큼 (즉, 이전에 활동 기록이 있었음)
+        // 2. 그러나, 마지막 달(revenues의 마지막 요소)의 데이터가 'undefined' 혹은 'null' 임.
+        //    (주의: 0은 활동한 것이므로 블라인드가 아님. 데이터가 아예 없는 경우만 체크)
+        const lastVal = revenues[revenues.length - 1];
+        
+        const isDataMissing = (lastVal === undefined || lastVal === null || lastVal === ""); 
+        const isBlind = (totalRev > 0 && isDataMissing) || (r.nick && String(r.nick).includes('블라인드'));
+
+        return { ...r, isBlind, revenues };
+    });
+
+    // [Step 2] 정렬: 일반 상담사 -> 블라인드 상담사(맨 뒤)
+    const data = processedData.sort((a, b) => {
+        if (a.isBlind && !b.isBlind) return 1;  // A가 블라인드면 뒤로
+        if (!a.isBlind && b.isBlind) return -1; // B가 블라인드면 뒤로
+        return 0; // 같으면 유지
+    });
 
     const noticeText = "* 상담사 별 최고 매출액, 최저 매출액 음영표시 (최고:빨강/최저:파랑)";
     XLSX.utils.sheet_add_aoa(ws, [[noticeText]], { origin: "B2" });
@@ -323,26 +357,37 @@ export const generateSixMonthExcel = (data, year, half, monthLabels) => {
 
     // 데이터 삽입
     const rows = data.map(r => {
-        // [NEW] 목표설정 및 특이사항 자동 생성
-        const goalText = getSixMonthGoalText(r);
-        const noteText = (r.nick && r.nick.includes('블라인드')) ? '블라인드 상담사' : '';
+        const safeNick = r.nick ? String(r.nick).trim() : "";
+        
+        // 목표설정 자동 생성 (블라인드는 빈칸)
+        const goalText = getSixMonthGoalText(r, r.isBlind);
+        const noteText = r.isBlind ? '블라인드 상담사' : '';
+
+        // 엑셀에 뿌려줄 때는 null/undefined를 0이나 빈칸으로 처리해야 함
+        // (안 그러면 엑셀파일이 깨질 수 있음)
+        const displayRevenues = (Array.isArray(r.revenues) ? r.revenues : []).map(v => (v === null || v === undefined) ? 0 : v);
+        // 만약 monthLabels 길이보다 부족하면 0으로 채움
+        while(displayRevenues.length < monthLabels.length) {
+            displayRevenues.push(0);
+        }
 
         return [
             '', // A열 병합용
-            r.category,
-            r.levelCat,
-            r.level,
-            r.nick,
-            ...r.revenues,
-            r.avgRev,
-            r.totalRev,
-            noteText, // 특이사항 (블라인드 여부)
-            goalText  // 목표설정 (자동 생성 or 블라인드 시 빈칸)
+            r.category || '-',
+            r.levelCat || '-',
+            r.level || '-',
+            safeNick,
+            ...displayRevenues,
+            r.avgRev || 0,
+            r.totalRev || 0,
+            noteText, // 특이사항
+            goalText  // 목표설정
         ];
     });
     XLSX.utils.sheet_add_aoa(ws, rows, { origin: "A5" });
 
-    // 스타일링 (기존 동일)
+    // --- 스타일링 로직 ---
+    
     const noticeStyle = {
         fill: { fgColor: { rgb: "FF0000" } }, 
         font: { name: "Arial", sz: 10, color: { rgb: "FFFFFF" }, bold: true }, 
@@ -374,7 +419,12 @@ export const generateSixMonthExcel = (data, year, half, monthLabels) => {
 
     data.forEach((row, idx) => {
         const rowIdx = 4 + idx; 
-        const validRevs = row.revenues.map((v, i) => ({ v, i })).filter(o => o.v > 0);
+        
+        // 스타일링을 위한 유효값 체크 (0은 포함, null/undefined 제외)
+        const revenues = Array.isArray(row.revenues) ? row.revenues : [];
+        const validRevs = revenues.map((v, i) => ({ v: (v === null || v === undefined) ? 0 : v, i }))
+                                  .filter(o => o.v > 0); // 색상 강조는 0보다 큰 값 기준
+
         let maxIdx = -1, minIdx = -1;
         if (validRevs.length > 0) {
             const maxVal = Math.max(...validRevs.map(o => o.v));
@@ -389,18 +439,26 @@ export const generateSixMonthExcel = (data, year, half, monthLabels) => {
 
             if (c === 0 && rowIdx <= 11) continue;
 
+            // 기본 스타일 적용
             ws[addr].s = STYLES.body;
 
-            if (c >= START_REV_COL && c <= 12) { 
-                ws[addr].s = CURRENCY_STYLE;
+            // [NEW] 목표설정(14번 열)은 왼쪽 정렬 스타일 적용!
+            if (c === 14) {
+                 ws[addr].s = STYLES.leftAlignBody;
             }
 
+            // 금액 서식 적용 (매출액 컬럼 + 평균 + 합계)
+            if (c >= START_REV_COL && c <= 12) { 
+                ws[addr].s = { ...ws[addr].s, ...CURRENCY_STYLE, border: ws[addr].s.border };
+            }
+
+            // 최대/최소 매출액 색상 강조
             if (c >= START_REV_COL && c <= END_REV_COL) {
                 const monthIndex = c - START_REV_COL;
                 if (monthIndex === maxIdx) {
-                    ws[addr].s = { ...CURRENCY_STYLE, fill: { fgColor: COLORS.redBg }, font: { color: COLORS.redFg } }; 
+                    ws[addr].s = { ...ws[addr].s, fill: { fgColor: COLORS.redBg }, font: { ...FONTS.body, color: COLORS.redFg } }; 
                 } else if (monthIndex === minIdx) {
-                    ws[addr].s = { ...CURRENCY_STYLE, fill: { fgColor: COLORS.blueBg }, font: { color: COLORS.blueFg } }; 
+                    ws[addr].s = { ...ws[addr].s, fill: { fgColor: COLORS.blueBg }, font: { ...FONTS.body, color: COLORS.blueFg } }; 
                 }
             }
         }
