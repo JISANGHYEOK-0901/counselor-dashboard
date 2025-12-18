@@ -164,67 +164,81 @@ const formatTime = (seconds) => {
 };
 
 // ==========================================
-// [NEW] 6개월 성과보고 전용 목표 자동생성 로직
+// [FIX] 6개월 성과보고 전용 목표 자동생성 로직 (6개월 비교 + 최소 매출 기준 적용)
 // ==========================================
 const getSixMonthGoalText = (row, isBlind) => {
-  // 1. 블라인드 상담사는 무조건 빈칸
+  // 1. 블라인드 상담사는 빈칸
   if (isBlind) return "";
 
-  // [핵심 수정] 들어오는 데이터가 문자열("5000")일 수도 있으므로 강제로 숫자로 변환
-  // 콤마(,)가 포함된 문자열일 수도 있으니 제거 후 변환
+  // [유틸] 숫자 변환 (콤마 제거 및 안전 처리)
   const parseNum = (val) => {
       if (val === null || val === undefined || val === '') return 0;
       if (typeof val === 'number') return val;
-      // 문자열인 경우 콤마 제거 후 숫자 변환
       return Number(String(val).replace(/,/g, '')) || 0;
   };
 
-  const avgRev = parseNum(row.avgRev);
-  const level = parseNum(row.level);
+  const avgRev = parseNum(row.avgRev);   // 6개월 평균 매출
+  const level = parseNum(row.level);     // 상담사 레벨
   
+  // 매출 배열 안전 처리
   const revenues = Array.isArray(row.revenues) ? row.revenues : [];
-  
-  // 유효한 데이터만 필터링 (null/undefined/빈문자열 제외)
-  const validRevs = revenues.filter(v => v !== null && v !== undefined && v !== '');
+  // 유효 데이터만 필터링
+  const validRevs = revenues.map(v => parseNum(v)); 
 
   // 데이터가 아예 없으면 빈칸
   if (validRevs.length === 0) return "";
 
-  // 마지막 달과 그 전달 데이터도 안전하게 숫자로 변환
-  const lastMonthRev = parseNum(validRevs[validRevs.length - 1]);
-  const prevMonthRev = parseNum(validRevs[validRevs.length - 2]);
+  const lastMonthRev = validRevs[validRevs.length - 1] || 0; // 이번 달
+  const prevMonthRev = validRevs[validRevs.length - 2] || 0; // 전달
 
-  // --- 로그 확인용 (필요시 주석 해제) ---
-  // console.log(`Nick: ${row.nick}, Last: ${lastMonthRev}, Prev: ${prevMonthRev}, Avg: ${avgRev}, Level: ${level}`);
+  // =================================================================
+  // [NEW] 1. 최소 유의미 매출 기준 (예: 10만 원)
+  // 매출이 올랐어도 이 금액 미만이면 아직 '유지'할 단계가 아님.
+  // =================================================================
+  const MIN_MEANINGFUL_REVENUE = 100000; 
 
-  // [우선순위 1] 매출 우상향 (지난달보다 이번달이 큼)
-  if (lastMonthRev > prevMonthRev) {
-    return "지금과 같이 규칙적인 접속시간 유지 및 단골 확보하여 매출 높일 수 있도록 목표 설정";
+  if (lastMonthRev < MIN_MEANINGFUL_REVENUE) {
+    return "고정적인 접속 시간 확보 필요, 상담 대기 시간을 늘려 고객 유입을 유도해야 함";
   }
-  
-  // [우선순위 2] 매출 하락 (지난달보다 이번달이 작음)
+
+  // =================================================================
+  // [NEW] 2. 6개월 데이터 비교 로직
+  // =================================================================
+
+  // Case A: 확실한 상승세 (전달보다 상승 AND 6개월 평균보다 높음)
+  if (lastMonthRev > prevMonthRev && lastMonthRev >= avgRev) {
+    return "현재의 상승세 유지, 규칙적인 접속과 단골 관리로 매출 안정화 목표";
+  }
+
+  // Case B: 소폭 반등 (전달보다 상승했으나, 아직 6개월 평균에는 못 미침)
+  if (lastMonthRev > prevMonthRev && lastMonthRev < avgRev) {
+    return "매출 회복세 진입, 접속 시간을 조금 더 늘려 평균 매출 달성 목표";
+  }
+
+  // Case C: 하락세 (전달보다 하락)
   if (lastMonthRev < prevMonthRev) {
-    return "접속시간, 부재중 모니터링 및 상담 노하우 팁 전달 예정";
+    return "부재중 모니터링 강화 및 주 고객 활동 시간대(출퇴근/점심) 집중 공략 필요";
   }
 
-  // [우선순위 3] 0단계 상담사
+  // =================================================================
+  // [NEW] 3. 레벨 및 고수익자 별 추가 멘트 (위 조건들에 걸리지 않은 경우)
+  // =================================================================
+
+  // 0단계 상담사 (매출이 10만원 이상인데 여기 온 경우)
   if (level === 0) {
-    return "접속시간 증가 필요, 규칙적인 접속시간 유지 및 단골 확보하여 매출 높일 수 있도록 목표설정";
+    return "단골 확보를 통한 매출 기반 마련, 단계 승급을 위한 접속 유지";
   }
 
-  // [우선순위 4] 1~2단계 상담사
-  if (level >= 1 && level <= 2) {
-    return "접속시간 증가 및 단골 형성, 매출 상승을 통해 단계 승급할 수 있도록 목표 설정";
-  }
-
-  // [우선순위 5] 고수익자 (월평균 500만원 이상)
+  // 고수익자 (월 500 이상)
   if (avgRev >= 5000000) {
-    return "지금과 같이 규칙적인 접속시간 유지, 후기와 단골 관리를 통해 매출 상향";
+    return "최상위권 매출 유지, 후기 관리 및 VIP 고객 집중 케어";
   }
 
-  // [우선순위 6] 나머지
-  return "접속시간 증가, 주 고객들이 활동하는 출근, 점심, 퇴근 이후 시간대 활동, 포스팅 작성을 통한 고객 유입, 부재중 관리";
+  // 그 외 일반적인 경우
+  return "접속 시간 준수 및 포스팅 작성을 통한 신규 고객 유입 확대";
 };
+
+
 // ==========================================
 // 1. 월간 리포트 생성 함수 (기존 로직 유지)
 // ==========================================
