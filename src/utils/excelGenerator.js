@@ -21,9 +21,7 @@ const COLORS = {
   redFg: { rgb: "9C0006" }        
 };
 
-// 기본 얇은 테두리
 const THIN_BORDER = { style: "thin", color: { rgb: "BFBFBF" } };
-// 굵은 테두리 (검정)
 const THICK_BORDER_STYLE = { style: "medium", color: { rgb: "000000" } };
 
 const CURRENCY_STYLE = {
@@ -68,7 +66,6 @@ const applyThickBorder = (ws, sR, sC, eR, eC) => {
     for (let r = sR; r <= eR; r++) {
         for (let c = sC; c <= eC; c++) {
             const addr = XLSX.utils.encode_cell({ r, c });
-            // [수정] 빈 셀이라도 테두리를 그리기 위해 셀 생성
             if (!ws[addr]) ws[addr] = { t: 's', v: '' };
 
             if (!ws[addr].s) ws[addr].s = {};
@@ -110,7 +107,7 @@ const autoFitColumns = (ws, headerRowIndex = 0, padding = 4) => {
     }
     let finalWidth = Math.min(maxLen + padding, 60);
 
-    // [수정 요청 2번] F열(Index 5) ~ O열(Index 14) 너비 넉넉하게 설정 (최소 16)
+    // F열 ~ O열 너비 넉넉하게
     if (C >= 5 && C <= 14) {
         finalWidth = Math.max(finalWidth, 16);
     }
@@ -118,9 +115,7 @@ const autoFitColumns = (ws, headerRowIndex = 0, padding = 4) => {
     colWidths[C] = { wch: finalWidth };
   }
   
-  // A열 너비 고정
   if (colWidths[0]) colWidths[0] = { wch: 18 }; 
-  // M열(평균) 너비 고정
   if (colWidths[12]) colWidths[12] = { wch: 22 };
 
   ws['!cols'] = colWidths;
@@ -130,7 +125,7 @@ const applyCellStyle = (ws, range, styleType) => {
   for (let R = range.s.r; R <= range.e.r; ++R) {
     for (let C = range.s.c; C <= range.e.c; ++C) {
       const addr = XLSX.utils.encode_cell({ r: R, c: C });
-      if (!ws[addr]) ws[addr] = { t: 's', v: '' }; // 빈 셀 생성
+      if (!ws[addr]) ws[addr] = { t: 's', v: '' };
       
       const baseStyle = STYLES[styleType];
       ws[addr].s = { 
@@ -159,15 +154,53 @@ const formatTime = (seconds) => {
 };
 
 // ==========================================
-// 메인 생성 함수 (기존 월간 리포트 - 유지)
+// [NEW] 6개월 성과보고 전용 목표 자동생성 로직
+// ==========================================
+const getSixMonthGoalText = (row) => {
+  // 1. 블라인드 상담사: 목표 작성 X (빈칸)
+  if (row.nick && row.nick.includes('블라인드')) return "";
+
+  const avgRev = row.avgRev || 0;
+  const level = parseInt(row.level) || 0;
+  const revenues = row.revenues || []; // [month1, month2, ..., month6]
+  
+  // 매출 추이 파악 (마지막 달 vs 그 전달 비교)
+  const lastMonthRev = revenues[revenues.length - 1] || 0; // 이번 달
+  const prevMonthRev = revenues[revenues.length - 2] || 0; // 전달
+
+  // [우선순위 1] 매출이 꾸준히 우상향중인 상담사 (지난달 대비 상승)
+  if (lastMonthRev > prevMonthRev) {
+    return "지금과 같이 규칙적인 접속시간 유지 및 단골 확보하여 매출 높일 수 있도록 목표 설정";
+  }
+
+  // [우선순위 2] 매출이 떨어지고있는 상담사 (지난달 대비 하락)
+  if (lastMonthRev < prevMonthRev) {
+    return "접속시간, 부재중 모니터링 및 상담 노하우 팁 전달 예정";
+  }
+
+  // [우선순위 3] 0단계인 상담사
+  if (level === 0) {
+    return "접속시간 증가 필요, 규칙적인 접속시간 유지 및 단골 확보하여 매출 높일 수 있도록 목표설정";
+  }
+
+  // [우선순위 4] 1~2단계 상담사
+  if (level >= 1 && level <= 2) {
+    return "접속시간 증가 및 단골 형성, 매출 상승을 통해 단계 승급할 수 있도록 목표 설정";
+  }
+
+  // [우선순위 5] 그 외 전체정산이 500만원 이상인 상담사
+  if (avgRev >= 5000000) {
+    return "지금과 같이 규칙적인 접속시간 유지, 후기와 단골 관리를 통해 매출 상향";
+  }
+
+  // [우선순위 6] 나머지 (보통 매출이 안나오는 상담사)
+  return "접속시간 증가, 주 고객들이 활동하는 출근, 점심, 퇴근 이후 시간대 활동, 포스팅 작성을 통한 고객 유입, 부재중 관리";
+};
+
+// ==========================================
+// 1. 월간 리포트 생성 함수 (기존 로직 롤백)
 // ==========================================
 export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, targetMonth, userMemo = {}, workLogs = null) => {
-  // ... (기존 generateMonthlyReportExcel 코드 내용은 수정 없이 그대로 유지) ...
-  // 너무 길어 생략하지만, 기존에 잘 동작하던 코드는 그대로 두시면 됩니다.
-  // 이 함수는 요청하신 6개월 리포트와 무관하므로 위 코드 블록들만 교체해주셔도 됩니다.
-  // 다만 전체 파일 덮어쓰기를 원하시면 이전에 드린 코드의 이 부분도 포함해야 합니다.
-  // 편의를 위해 아래에 짧게 축약하지 않고 그대로 둡니다.
-  
   const wb = XLSX.utils.book_new();
   const currentMonthNum = parseInt(targetMonth);
   const prevMonthNum = currentMonthNum === 1 ? 12 : currentMonthNum - 1;
@@ -179,12 +212,15 @@ export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, target
   const mergeText = '증액,하락\n통합\n(전체상담사)\n단계별로 정렬';
   
   analyzedCurrent.forEach((row, i) => {
+    // [롤백] 월간 리포트는 기존 입력값(row.goal) 사용
     s1Data.push([
       i === 0 ? mergeText : '', 
       row.category || '-', row.levelCat || '-', row.level || '-', row.nick,
       formatTime(row.prevTime), formatTime(row.curTime), (row.timeRate * 100).toFixed(1) + '%',
       row.prevRev || 0, row.curRev || 0, (row.revRate * 100).toFixed(1) + '%',
-      (row.curRev || 0) - (row.prevRev || 0), row.reason || '-', row.goal || '-' 
+      (row.curRev || 0) - (row.prevRev || 0), 
+      row.reason || '-', 
+      row.goal || '-'  // 기존 목표값 유지
     ]);
   });
 
@@ -201,15 +237,18 @@ export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, target
   setZoom(ws1);
   XLSX.utils.book_append_sheet(wb, ws1, "매출 증감");
 
-  // Sheet 2, 3 (생략 없이 기존 로직 그대로 사용)
+  // Sheet 2, 3 (기존 로직 유지)
   const partnerRows = []; let targetYM = 0; let targetDateStr = ""; 
   analyzedCurrent.forEach(row => { const m = String(row.memo || ""); const match = m.match(/(\d{2}\.\d{2})월.*파트너/); if(match) { const dateStr = match[1]; const parts = dateStr.split('.'); const currentVal = parseInt(parts[0]) * 100 + parseInt(parts[1]); if(currentVal > targetYM) { targetYM = currentVal; targetDateStr = dateStr; } } });
   if(targetDateStr) { analyzedCurrent.forEach(row => { const m = String(row.memo || ""); if(m.includes(targetDateStr) && m.includes('파트너')) { partnerRows.push([row.category, row.levelCat, row.level, row.nick, '-', targetDateStr, formatTime(row.curSettleTime), row.curRev || 0, '']); } }); }
   if(partnerRows.length > 0) partnerRows[0][8] = partnerRows.length+'명'; else partnerRows.push(['', '', '', '', '', '대상 없음', '', '', '']);
+  
   const blindRows = analyzedCurrent.filter(r => r.status === 'blind').map((r, i) => [monthStr, r.category, r.levelCat, r.level, r.nick, userMemo[r.nick] || '미활동', i===0 ? (analyzedCurrent.filter(x=>x.status==='blind').length+'명') : '']);
   if(blindRows.length === 0) blindRows.push(['', '', '', '', '', '대상 없음', '']);
+  
   const newRows = analyzedCurrent.filter(r => r.status === 'new').map((r, i) => [monthStr, r.category, r.levelCat, r.level, r.nick, userMemo[r.nick] || '-', i===0 ? (analyzedCurrent.filter(x=>x.status==='new').length+'명') : '']);
   if(newRows.length === 0) newRows.push(['', '', '', '', '', '대상 없음', '']);
+  
   const ws3 = XLSX.utils.aoa_to_sheet([]);
   let currRow = 1;
   const pTitle = targetDateStr ? `■ 파트너 계약 상담사 (${targetDateStr}월 적용)` : `■ 파트너 계약 상담사`;
@@ -220,12 +259,14 @@ export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, target
   applyCellStyle(ws3, {s:{r:currRow, c:1}, e:{r:currRow + partnerRows.length - 1, c:9}}, 'body');
   for(let i=0; i<partnerRows.length; i++) { const addr = XLSX.utils.encode_cell({r: currRow+i, c: 8}); if(ws3[addr]) ws3[addr].s = CURRENCY_STYLE; }
   currRow += partnerRows.length + 2;
+  
   XLSX.utils.sheet_add_aoa(ws3, [['■ 블라인드 상담사']], {origin: {r: currRow++, c: 1}});
   XLSX.utils.sheet_add_aoa(ws3, [['월', '분야', '단계', '단계', '활동명', '사유', 'TTL']], {origin: {r: currRow, c: 1}});
   applyCellStyle(ws3, {s:{r:currRow, c:1}, e:{r:currRow, c:7}}, 'greenHeader'); currRow++;
   XLSX.utils.sheet_add_aoa(ws3, blindRows, {origin: {r: currRow, c: 1}});
   applyCellStyle(ws3, {s:{r:currRow, c:1}, e:{r:currRow + blindRows.length - 1, c:7}}, 'body');
   currRow += blindRows.length + 2;
+  
   XLSX.utils.sheet_add_aoa(ws3, [['■ 신규 상담사']], {origin: {r: currRow++, c: 1}});
   XLSX.utils.sheet_add_aoa(ws3, [['월', '분야', '등록단계', '단계', '활동명', '등록일', 'TTL']], {origin: {r: currRow, c: 1}});
   applyCellStyle(ws3, {s:{r:currRow, c:1}, e:{r:currRow, c:7}}, 'greenHeader'); currRow++;
@@ -259,7 +300,7 @@ export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, target
 };
 
 // ==========================================
-// [NEW] 6개월 성과보고 엑셀 생성 함수 (수정됨)
+// 2. 6개월 성과보고 엑셀 생성 함수 (수정 적용)
 // ==========================================
 export const generateSixMonthExcel = (data, year, half, monthLabels) => {
     const wb = XLSX.utils.book_new();
@@ -268,11 +309,9 @@ export const generateSixMonthExcel = (data, year, half, monthLabels) => {
 
     const ws = XLSX.utils.aoa_to_sheet([]);
 
-    // 1. 안내 문구 (B2:J2)
     const noticeText = "* 상담사 별 최고 매출액, 최저 매출액 음영표시 (최고:빨강/최저:파랑)";
     XLSX.utils.sheet_add_aoa(ws, [[noticeText]], { origin: "B2" });
 
-    // 2. 헤더 (A4)
     const headers = [
         titleText, 
         '분야', '단계', '단계', '활동명',
@@ -282,28 +321,28 @@ export const generateSixMonthExcel = (data, year, half, monthLabels) => {
     ];
     XLSX.utils.sheet_add_aoa(ws, [headers], { origin: "A4" });
 
-    // 3. 데이터 삽입
+    // 데이터 삽입
     const rows = data.map(r => {
+        // [NEW] 목표설정 및 특이사항 자동 생성
+        const goalText = getSixMonthGoalText(r);
+        const noteText = (r.nick && r.nick.includes('블라인드')) ? '블라인드 상담사' : '';
+
         return [
             '', // A열 병합용
             r.category,
             r.levelCat,
             r.level,
             r.nick,
-            ...r.revenues, // 6개월 매출
+            ...r.revenues,
             r.avgRev,
             r.totalRev,
-            '', 
-            '' 
+            noteText, // 특이사항 (블라인드 여부)
+            goalText  // 목표설정 (자동 생성 or 블라인드 시 빈칸)
         ];
     });
     XLSX.utils.sheet_add_aoa(ws, rows, { origin: "A5" });
 
-    // ==========================================
-    // 스타일링 적용
-    // ==========================================
-
-    // 1. 안내 문구 스타일 (B2:J2)
+    // 스타일링 (기존 동일)
     const noticeStyle = {
         fill: { fgColor: { rgb: "FF0000" } }, 
         font: { name: "Arial", sz: 10, color: { rgb: "FFFFFF" }, bold: true }, 
@@ -312,36 +351,29 @@ export const generateSixMonthExcel = (data, year, half, monthLabels) => {
     };
     ws['!merges'] = [
         { s: { r: 1, c: 1 }, e: { r: 1, c: 9 } }, 
-        // [수정 요청 2번] A열 병합 범위 제한 (5행 ~ 12행, index: 4~11)
         { s: { r: 4, c: 0 }, e: { r: 11, c: 0 } }
     ];
     const noticeAddr = XLSX.utils.encode_cell({ r: 1, c: 1 });
     if (!ws[noticeAddr]) ws[noticeAddr] = { t: 's', v: noticeText };
     ws[noticeAddr].s = noticeStyle;
 
-    // 2. A열 병합 텍스트 (A5)
-    const aColAddr = XLSX.utils.encode_cell({ r: 4, c: 0 }); // A5
-    if (!ws[aColAddr]) ws[aColAddr] = { t: 's', v: '' }; // 만약 없으면 생성
+    const aColAddr = XLSX.utils.encode_cell({ r: 4, c: 0 });
+    if (!ws[aColAddr]) ws[aColAddr] = { t: 's', v: '' };
     ws[aColAddr].v = "증액,하락\n통합\n(전체상담사)\n단계별로 정렬\n(0단계부터)";
     ws[aColAddr].s = { 
         ...STYLES.body, 
         alignment: { horizontal: "center", vertical: "center", wrapText: true } 
     };
 
-    // 3. 헤더 스타일 (A4:O4)
     applyCellStyle(ws, { s: { r: 3, c: 0 }, e: { r: 3, c: 14 } }, 'greenHeader');
-    // [수정 요청 3번] 헤더 전체 굵은 테두리
     applyThickBorder(ws, 3, 0, 3, 14);
 
-    // 4. 본문 스타일 및 최고/최저 음영
     const START_REV_COL = 5;
     const END_REV_COL = 10;
     const END_ROW_IDX = 4 + rows.length - 1;
 
     data.forEach((row, idx) => {
         const rowIdx = 4 + idx; 
-        
-        // 최고/최저값 찾기
         const validRevs = row.revenues.map((v, i) => ({ v, i })).filter(o => o.v > 0);
         let maxIdx = -1, minIdx = -1;
         if (validRevs.length > 0) {
@@ -353,10 +385,9 @@ export const generateSixMonthExcel = (data, year, half, monthLabels) => {
 
         for (let c = 0; c <= 14; c++) {
             const addr = XLSX.utils.encode_cell({ r: rowIdx, c: c });
-            // [수정 요청 1번] 빈 셀도 테두리를 그리기 위해 강제 생성
             if (!ws[addr]) ws[addr] = { t: 's', v: '' };
 
-            if (c === 0 && rowIdx <= 11) continue; // A열 병합 구간 건너뜀
+            if (c === 0 && rowIdx <= 11) continue;
 
             ws[addr].s = STYLES.body;
 
@@ -375,13 +406,9 @@ export const generateSixMonthExcel = (data, year, half, monthLabels) => {
         }
     });
 
-    // [수정 요청 4번] 데이터 전체 영역(B5 ~ O끝) 굵은 바깥 테두리
-    // A열은 병합되어 별도이므로 B열(1)부터 시작
     applyThickBorder(ws, 4, 1, END_ROW_IDX, 14);
-    // A열 병합 구역 굵은 테두리
     applyThickBorder(ws, 4, 0, 11, 0);
 
-    // 열 너비 계산
     autoFitColumns(ws, 3, 2);
     setZoom(ws);
 
