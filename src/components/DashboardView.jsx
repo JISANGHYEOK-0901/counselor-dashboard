@@ -4,7 +4,6 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 import { getFilterCondition } from '../utils/aiSearch';
 import MessageModal from './MessageModal';
 
-
 const ISSUE_LABELS = { 
   'A': 'A 접속시간', 'B': 'B 정산금액', 'C': 'C 부재중', 'D': 'D 후기', 
   'C(월간부재)': 'C 월간부재', '시간미달': '시간미달' 
@@ -19,7 +18,7 @@ const fmtTime = (s) => {
 };
 const fmtRate = (n) => (n || 0).toFixed(1) + '%';
 
-// [추가됨] 통계 계산 헬퍼 함수 (에러 해결 핵심)
+// 통계 계산 헬퍼 함수
 const calculateStats = (data) => {
     if (!data || data.length === 0) return {};
     const count = data.length;
@@ -94,7 +93,6 @@ const DashboardView = ({ data, memo, setMemo, isMonthly, isDark }) => {
   const resetSearch = () => { setSearchQuery(''); setFilterCode(null); setAiSortConfig(null); };
 
   const handleAiSearch = async (userInput = searchQuery) => {
-    // [수정] 빈 값 입력 시 초기화
     if (!userInput || !userInput.trim()) {
         resetSearch();
         return;
@@ -102,10 +100,7 @@ const DashboardView = ({ data, memo, setMemo, isMonthly, isDark }) => {
 
     setIsSearching(true);
     try {
-        // [수정] 통계 계산 함수 호출
         const stats = calculateStats(data);
-
-        // [수정] 통계 데이터 함께 전달
         const result = await getFilterCondition(userInput, stats);
 
         setFilterCode(result.filterCode);
@@ -154,6 +149,29 @@ const DashboardView = ({ data, memo, setMemo, isMonthly, isDark }) => {
       return result;
   }, [recalculatedData, filterCode, aiSortConfig, chartType]);
 
+  // [추가] 등급별 인원 수 계산 로직 (0단계 포함)
+  const levelCounts = useMemo(() => {
+    const counts = {
+      '퍼플': { 6: 0, 5: 0, 4: 0, 3: 0, 2: 0, 1: 0, 0: 0 },
+      '그린': { 6: 0, 5: 0, 4: 0, 3: 0, 2: 0, 1: 0, 0: 0 }
+    };
+
+    filteredData.forEach(row => {
+      let cat = null;
+      if (row.levelCat && row.levelCat.includes('퍼플')) cat = '퍼플';
+      else if (row.levelCat && row.levelCat.includes('그린')) cat = '그린';
+
+      // levelNum이 없으면 level 문자열에서 추출, 없으면 0
+      const lv = row.levelNum !== undefined ? row.levelNum : parseInt(String(row.level).replace(/[^0-9]/g, '')) || 0;
+
+      if (cat && counts[cat][lv] !== undefined) {
+        counts[cat][lv]++;
+      }
+    });
+
+    return counts;
+  }, [filteredData]);
+
   const top10Data = useMemo(() => filteredData.slice(0, 10), [filteredData]);
 
   return (
@@ -171,6 +189,43 @@ const DashboardView = ({ data, memo, setMemo, isMonthly, isDark }) => {
                 {(filterCode || aiSortConfig) && (<button onClick={resetSearch} className="bg-white dark:bg-gray-700 text-gray-500 dark:text-gray-300 border dark:border-gray-600 px-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 transition shadow-sm" title="초기화"><RotateCcw size={18}/></button>)}
                 <button onClick={() => setShowSettings(true)} className="bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 px-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 transition flex items-center gap-1 font-bold shadow-sm" title="설정"><Settings size={18} /></button>
             </div>
+        </div>
+      </div>
+
+      {/* [추가] 등급별 인원 현황 패널 (0단계 포함) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 animate-fade-in-up">
+        {/* 퍼플 등급 현황 */}
+        <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-100 dark:border-purple-800 rounded-xl p-4 shadow-sm flex flex-col gap-2">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="bg-purple-100 dark:bg-purple-800 text-purple-700 dark:text-purple-300 px-2 py-0.5 rounded text-xs font-bold">퍼플 등급</span>
+            <span className="text-xs text-gray-500 dark:text-gray-400">총 {Object.values(levelCounts['퍼플']).reduce((a,b)=>a+b, 0)}명</span>
+          </div>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-700 dark:text-gray-300">
+            {[6, 5, 4, 3, 2, 1, 0].map(lv => (
+              <div key={lv} className={`flex items-center gap-1 ${levelCounts['퍼플'][lv] === 0 ? 'opacity-40' : 'font-bold'}`}>
+                <span className="w-1.5 h-1.5 rounded-full bg-purple-400"></span>
+                <span>{lv}단계:</span>
+                <span className="text-purple-700 dark:text-purple-300">{levelCounts['퍼플'][lv]}명</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* 그린 등급 현황 */}
+        <div className="bg-green-50 dark:bg-green-900/20 border border-green-100 dark:border-green-800 rounded-xl p-4 shadow-sm flex flex-col gap-2">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="bg-green-100 dark:bg-green-800 text-green-700 dark:text-green-300 px-2 py-0.5 rounded text-xs font-bold">그린 등급</span>
+            <span className="text-xs text-gray-500 dark:text-gray-400">총 {Object.values(levelCounts['그린']).reduce((a,b)=>a+b, 0)}명</span>
+          </div>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-700 dark:text-gray-300">
+            {[6, 5, 4, 3, 2, 1, 0].map(lv => (
+              <div key={lv} className={`flex items-center gap-1 ${levelCounts['그린'][lv] === 0 ? 'opacity-40' : 'font-bold'}`}>
+                <span className="w-1.5 h-1.5 rounded-full bg-green-400"></span>
+                <span>{lv}단계:</span>
+                <span className="text-green-700 dark:text-green-300">{levelCounts['그린'][lv]}명</span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 

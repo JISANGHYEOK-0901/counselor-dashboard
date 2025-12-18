@@ -8,8 +8,8 @@ import DashboardView from "./components/DashboardView";
 import AdManager from "./components/AdManager";
 import RevenuePage from "./components/RevenuePage";
 import EmptyState from "./components/EmptyState";
-import WorkLogPage from "./components/WorkLogPage"; 
-import SixMonthReport from './components/SixMonthReport'; // [NEW] import 추가
+// import WorkLogPage from "./components/WorkLogPage"; 
+import SixMonthReport from './components/SixMonthReport';
 import AiChatbot from './components/AiChatbot';
 import UsageGuide from './components/UsageGuide';
 
@@ -40,6 +40,12 @@ function App() {
   const [persistedData, setPersistedData] = useState(() => JSON.parse(localStorage.getItem('dashboardData')) || { weekly: null, monthly: null, report: null, revSummary: null });
   const [tempFiles, setTempFiles] = useState(() => JSON.parse(localStorage.getItem('rawDataStorage')) || { lastWeek: null, thisWeek: null, lastMonth: null, thisMonth: null });
   
+  // [수정 1] 성과보고서 파일 상태 (상반기 '1' / 하반기 '2' 분리 저장)
+  const [reportFiles, setReportFiles] = useState(() => {
+    const saved = localStorage.getItem('reportFiles');
+    return saved ? JSON.parse(saved) : { '1': Array(6).fill(null), '2': Array(6).fill(null) };
+  });
+
   const [manualAdData, setManualAdData] = useState(() => JSON.parse(localStorage.getItem('manualAdData')) || null);
 
   const [activeTab, setActiveTab] = useState('weekly');
@@ -57,6 +63,9 @@ function App() {
   useEffect(() => localStorage.setItem('rawDataStorage', JSON.stringify(tempFiles)), [tempFiles]);
   useEffect(() => localStorage.setItem('workLogs', JSON.stringify(workLogs)), [workLogs]);
   useEffect(() => localStorage.setItem('manualAdData', JSON.stringify(manualAdData)), [manualAdData]);
+  
+  // [수정 2] 성과보고서 파일 상태 저장
+  useEffect(() => localStorage.setItem('reportFiles', JSON.stringify(reportFiles)), [reportFiles]);
 
   useEffect(() => {
     const savedTheme = localStorage.getItem('theme');
@@ -127,7 +136,10 @@ function App() {
       setPersistedData({ weekly: null, monthly: null, report: null, revSummary: null });
       setTempFiles({ lastWeek: null, thisWeek: null, lastMonth: null, thisMonth: null });
       setManualAdData(null); 
-      setMemo({}); setAdHistory({}); setWorkLogs({ remarks: [], recruitments: [], interviews: [] });
+      setMemo({}); setAdHistory({}); 
+      setWorkLogs({ remarks: [], recruitments: [], interviews: [] });
+      // [수정 3] 초기화 시 구조 유지
+      setReportFiles({ '1': Array(6).fill(null), '2': Array(6).fill(null) });
       alert("초기화되었습니다.");
   };
 
@@ -153,7 +165,7 @@ function App() {
       try {
           const processedCurrent = processWeeklyAnalysis(tempFiles.thisMonth.data, tempFiles.lastMonth.data);
           const processedPast = processWeeklyAnalysis(tempFiles.lastMonth.data, []);
-          generateMonthlyReportExcel(processedCurrent, processedPast, targetMonth, memo, workLogs);
+          generateMonthlyReportExcel(processedCurrent, processedPast, targetMonth, memo, null);
           alert("엑셀 파일 다운로드가 시작되었습니다.");
       } catch (e) { console.error(e); alert("다운로드 오류: " + e.message); }
   };
@@ -189,13 +201,12 @@ function App() {
   }, [persistedData.weekly, persistedData.monthly, manualAdData]);
 
   const TABS = [
-    { id: 'guide', label: '📖 사용설명서' },
+    { id: 'guide', label: '📖 설명서' },
     { id: 'weekly', label: '📊 주간 대시보드' },
     { id: 'monthly', label: '📅 월간 대시보드' },
     { id: 'report', label: '📝 성과 보고서' },
     { id: 'ad', label: '📢 광고 관리' },
     { id: 'revenue', label: '💰 월매출 비교' },
-    { id: 'worklog', label: '📓 업무 일지' },
   ];
 
   const currentData = activeTab === 'monthly' ? persistedData.monthly : persistedData.weekly;
@@ -225,8 +236,6 @@ function App() {
                 </div>
             </div>
           </div>
-
-{activeTab === 'guide' && <UsageGuide />}
 
           {activeTab === 'weekly' && (
               <div className="flex gap-4 items-stretch">
@@ -258,6 +267,7 @@ function App() {
 
       <div className="max-w-full mx-auto p-6">
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm min-h-[600px] p-6 border border-gray-200 dark:border-gray-700 transition-colors">
+          {activeTab === 'guide' && <UsageGuide />}
           {activeTab === 'weekly' && (persistedData.weekly ? <DashboardView data={persistedData.weekly} memo={memo} setMemo={setMemo} isDark={isDark} /> : <EmptyState />)}
           {activeTab === 'monthly' && (persistedData.monthly ? <DashboardView data={persistedData.monthly} memo={memo} setMemo={setMemo} isMonthly isDark={isDark} /> : <EmptyState type="monthly" />)}
           
@@ -274,9 +284,9 @@ function App() {
           
           {activeTab === 'revenue' && (persistedData.revSummary ? <RevenuePage summary={persistedData.revSummary} memo={memo} setMemo={setMemo} /> : <EmptyState type="monthly" />)}
           
-          {activeTab === 'report' && <SixMonthReport />}
-          
-          {activeTab === 'worklog' && <WorkLogPage workLogs={workLogs} setWorkLogs={setWorkLogs} />}
+          {activeTab === 'report' && (
+             <SixMonthReport filesStore={reportFiles} setFilesStore={setReportFiles} />
+          )}
         </div>
       </div>
       
