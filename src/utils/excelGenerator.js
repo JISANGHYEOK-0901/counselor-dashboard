@@ -246,6 +246,13 @@ export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, target
   const wb = XLSX.utils.book_new();
   const currentMonthNum = parseInt(targetMonth);
   const prevMonthNum = currentMonthNum === 1 ? 12 : currentMonthNum - 1;
+  const currentYear = new Date().getFullYear();
+  const shortYear = String(currentYear).slice(-2);
+  const partnerDateStr = `${shortYear}.${currentMonthNum}`;
+  const partnerMemoPatterns = [
+    `${shortYear}.${currentMonthNum}`,
+    `${shortYear}.${String(currentMonthNum).padStart(2, '0')}`,
+  ];
   const monthStr = `${currentMonthNum}월`;
   const prevMonthStr = `${prevMonthNum}월`;
 
@@ -279,9 +286,28 @@ export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, target
   XLSX.utils.book_append_sheet(wb, ws1, "매출 증감");
 
   // Sheet 2, 3 (기존 로직 유지)
-  const partnerRows = []; let targetYM = 0; let targetDateStr = ""; 
-  analyzedCurrent.forEach(row => { const m = String(row.memo || ""); const match = m.match(/(\d{2}\.\d{2})월.*파트너/); if(match) { const dateStr = match[1]; const parts = dateStr.split('.'); const currentVal = parseInt(parts[0]) * 100 + parseInt(parts[1]); if(currentVal > targetYM) { targetYM = currentVal; targetDateStr = dateStr; } } });
-  if(targetDateStr) { analyzedCurrent.forEach(row => { const m = String(row.memo || ""); if(m.includes(targetDateStr) && m.includes('파트너')) { partnerRows.push([row.category, row.levelCat, row.level, row.nick, '-', targetDateStr, formatTime(row.curSettleTime), row.curRev || 0, '']); } }); }
+  const partnerRows = [];
+  analyzedCurrent.forEach((row) => {
+    const memo = String(row.memo || "");
+    const hasPartnerKeyword = memo.includes("파트너");
+    const hasTargetMonth = partnerMemoPatterns.some((pattern) =>
+      memo.includes(pattern),
+    );
+
+    if (hasPartnerKeyword && hasTargetMonth) {
+      partnerRows.push([
+        row.category,
+        row.levelCat,
+        row.level,
+        row.nick,
+        "-",
+        partnerDateStr,
+        formatTime(row.curSettleTime),
+        row.curRev || 0,
+        "",
+      ]);
+    }
+  });
   if(partnerRows.length > 0) partnerRows[0][8] = partnerRows.length+'명'; else partnerRows.push(['', '', '', '', '', '대상 없음', '', '', '']);
   
   const blindRows = analyzedCurrent.filter(r => r.status === 'blind').map((r, i) => [monthStr, r.category, r.levelCat, r.level, r.nick, userMemo[r.nick] || '미활동', i===0 ? (analyzedCurrent.filter(x=>x.status==='blind').length+'명') : '']);
@@ -292,7 +318,7 @@ export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, target
   
   const ws3 = XLSX.utils.aoa_to_sheet([]);
   let currRow = 1;
-  const pTitle = targetDateStr ? `■ 파트너 계약 상담사 (${targetDateStr}월 적용)` : `■ 파트너 계약 상담사`;
+  const pTitle = `■ 파트너 계약 상담사 (${partnerDateStr}월 적용)`;
   XLSX.utils.sheet_add_aoa(ws3, [[pTitle]], {origin: {r: currRow++, c: 1}});
   XLSX.utils.sheet_add_aoa(ws3, [['분야', '등록단계', '단계', '활동명', '등록일', '계약일', '전체정산', '정산금액', 'TTL']], {origin: {r: currRow, c: 1}});
   applyCellStyle(ws3, {s:{r:currRow, c:1}, e:{r:currRow, c:9}}, 'greenHeader'); currRow++;

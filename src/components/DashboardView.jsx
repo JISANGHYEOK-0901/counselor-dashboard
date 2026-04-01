@@ -171,7 +171,7 @@ const DashboardView = ({ data, memo, setMemo, isMonthly, isDark }) => {
     }
     if (
       window.confirm(
-        "현재 작성된 모든 메모를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다."
+        "현재 작성된 모든 메모를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.",
       )
     ) {
       setMemo({});
@@ -467,7 +467,7 @@ const DashboardView = ({ data, memo, setMemo, isMonthly, isDark }) => {
                       }
                     />
                   </div>
-                )
+                ),
               )}
             </div>
             <div className="mt-6 flex justify-end">
