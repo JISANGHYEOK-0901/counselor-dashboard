@@ -31,6 +31,23 @@ const CURRENCY_STYLE = {
   numFmt: '#,##0"원"' 
 };
 
+const getReportYear = (targetMonth) => {
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+  return targetMonth > currentMonth ? currentYear - 1 : currentYear;
+};
+
+const getMemoMonthTokens = (memo) => {
+  return String(memo || '').match(/\b\d{2}\.\d{1,2}\b/g) || [];
+};
+
+const isSamePartnerMonth = (token, targetYear, targetMonth) => {
+  const [yearText, monthText] = String(token).split('.');
+  return Number(yearText) === Number(String(targetYear).slice(-2))
+    && Number(monthText) === targetMonth;
+};
+
 const STYLES = {
   purpleHeader: {
     fill: { fgColor: COLORS.purpleBg },
@@ -246,13 +263,9 @@ export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, target
   const wb = XLSX.utils.book_new();
   const currentMonthNum = parseInt(targetMonth);
   const prevMonthNum = currentMonthNum === 1 ? 12 : currentMonthNum - 1;
-  const currentYear = new Date().getFullYear();
-  const shortYear = String(currentYear).slice(-2);
+  const reportYear = getReportYear(currentMonthNum);
+  const shortYear = String(reportYear).slice(-2);
   const partnerDateStr = `${shortYear}.${currentMonthNum}`;
-  const partnerMemoPatterns = [
-    `${shortYear}.${currentMonthNum}`,
-    `${shortYear}.${String(currentMonthNum).padStart(2, '0')}`,
-  ];
   const monthStr = `${currentMonthNum}월`;
   const prevMonthStr = `${prevMonthNum}월`;
 
@@ -290,11 +303,11 @@ export const generateMonthlyReportExcel = (analyzedCurrent, analyzedPast, target
   analyzedCurrent.forEach((row) => {
     const memo = String(row.memo || "");
     const hasPartnerKeyword = memo.includes("파트너");
-    const hasTargetMonth = partnerMemoPatterns.some((pattern) =>
-      memo.includes(pattern),
+    const hasTargetMonth = getMemoMonthTokens(memo).some((token) =>
+      isSamePartnerMonth(token, reportYear, currentMonthNum),
     );
 
-    if (hasPartnerKeyword && hasTargetMonth) {
+    if (row.status !== 'blind' && hasPartnerKeyword && hasTargetMonth) {
       partnerRows.push([
         row.category,
         row.levelCat,
